@@ -41,7 +41,8 @@ bool vmx_surpport(void)
 
 bool get_vmx_operation(void)
 {
-
+    /*set bit 13 of CR4 to enbale VMX virtualization on CPU */ 
+    
     unsigned long cr4; 
 
     __asm__ __volatile__(
@@ -58,6 +59,8 @@ bool get_vmx_operation(void)
         :"r"(cr4)
         : "memory"
     ); 
+
+    /*configure MSR_IA32_FEATURE_CONTROL MSR to allow vmxon*/
 
     uint64_t feature_control; 
     uint64_t required; 
@@ -76,6 +79,50 @@ bool get_vmx_operation(void)
         * bit 32-63(high): modified feature value */  
         wrmsr(MSR_IA32_FEATURE_CONTROL, feature_control | required, low1)
     }
+
+    /*ensure bits in cr0 and cr4 are valid for VMX operation*/
+
+    unsigned long cr0; 
+    unsigned long cr4; 
+
+    __asm__ __volatile__ (
+        "mov %%cr0, %0"
+        : "=r" (cr0)
+        :
+        : "memory"
+    );
+    cr0 &=  __rdmsr1(MSR_IA32_VMX_CR0_FIXED1); /*mask all allowd bits to 1 */
+    cr0 |=  __rdmsr1(MSR_IA32_VMX_CR0_FIXED0); /*set all allowd bits */
+
+    __asm__ __volatile__ (
+        "mov %0, %%cr0"
+        : 
+        :"r" (cr0) 
+        :"memory"
+    ); 
+
+    __asm__ __volatile__ (
+
+        "mov %%cr4, %0"
+        :"=r" (cr4)
+        :
+        :"memory"
+        ); 
+
+    cr4 &= __rdmsr1(MSR_IA32_VMX_CR4_FIXED1); 
+    cr4 |= __rdmsr1(MSR_IA32_VMX_CR4_FIXED0); 
+
+    __asm__ __volatile__ (
+        "mov %0, %%cr4"
+        :
+        :"r"(cr4)
+        :"memory"
+    ); 
+
+
+
+
+
 
 }
 

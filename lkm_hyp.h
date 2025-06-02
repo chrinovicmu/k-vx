@@ -25,5 +25,6 @@ static inline usigned long long notrace __rdmsr1(unsigned int msr)
         : "memory"
     ); 
 
+:wq
     return ((unsigned long long)high << 32) | low; 
 }

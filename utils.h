@@ -11,9 +11,13 @@
 #define IA32_FEATURE_CONTROL_MSR_VMXON_ENABLE_OUTSIDE_SMX (1 << 2)
 #define MSR_IA32_FEATURE_CONTROL        0x0000003A 
 
-/*for __rdmsr1 */ 
-#define EAX_EDX_VAL(val, low, high) ((low) | (high) << 32)
-#define EAX_EDX_RET(val, low, high) "=a" (low), "=d" (high)
+
+#define MSR_IA32_VMX_CR0_FIXED0         0x00000486 
+#define MSR_IA32_VMX_CR0_FIXED1         0x00000487 
+#define MSR_IA32_VMX_CR4_FIXED0         0x00000488 
+#define MSR_IA32_VMX_CR4_FIXED1         0x00000489 
+
+
 
 #endif // UTILS_H 
 #define UTILS_H 
