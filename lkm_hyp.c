@@ -117,9 +117,21 @@ bool get_vmx_operation(void)
         :
         :"r"(cr4)
         :"memory"
-    ); 
+     );
 
 
+    long int vmxon_phy_region = 0; 
+
+    vmxon_region = kzalloc(VMXON_REGION_PAGE_SIZE, GFP_KERNEL); 
+    
+    if(!vmxon_region)
+    {
+        printk(KERN_INFO "ERROR alloacating vmxon region\n"); 
+        return false; 
+    }
+
+    vmxon_phy_region = __pa(vmxon);
+    *(uint32_t *)vmxon_region = vmcs_revision_id(); 
 
 
 
