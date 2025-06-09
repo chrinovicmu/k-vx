@@ -61,6 +61,19 @@ static inline uint32_t vmcs_revison_id(void)
     return __rdmsr1(MSR_IA32_VMX_BASIC); 
 }
 
+static inline uint8_t _vmxon(uint64_t phys)
+{
+    uint8_t ret; 
+    
+    __asm__ __volatile__ (
+        "vmxon %[pa]; setna %[ret]"
+        :[ret]"=rm"(ret)
+        :[pa]"m"(phys)
+        :"cc, memory
+    );
+
+    return ret; 
+}
 
 
 #endif 

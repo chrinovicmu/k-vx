@@ -119,7 +119,6 @@ bool get_vmx_operation(void)
         :"memory"
      );
 
-
     long int vmxon_phy_region = 0; 
 
     vmxon_region = kzalloc(VMXON_REGION_PAGE_SIZE, GFP_KERNEL); 
@@ -130,12 +129,17 @@ bool get_vmx_operation(void)
         return false; 
     }
 
-    vmxon_phy_region = __pa(vmxon);
+    /*convert virtual address to physical address */ 
+    vmxon_phy_region = __pa(vmxon_region);
+
+    /*write rivison id to first 32bit(4bytes) of vmxon region memory */ 
     *(uint32_t *)vmxon_region = vmcs_revision_id(); 
 
-
-
-
+    if(_vmxon(vmxon_phy_region))
+    {
+        return false; 
+    }
+    return true;
 }
 
 
