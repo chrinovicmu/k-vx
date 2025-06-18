@@ -1,11 +1,12 @@
 
-#ifdef LKM_HYP_H 
+#ifndef LKM_HYP_H 
 #define LKM_HYP_H
+
+#include <linux/const.h>
 
 #define X86_CR4_VMXE_BIT    13 
 #define X86_CR4_VMXE        _BITUL(X86_CR4_VMXE_BIT)
 
-#define _BITUL(x)           (1UL << (x))
 
 /*enablling vmx through IA32_FEATURE_CONTROL_MSR */ 
 #define IA32_FEATURE_CONTROL_LOCKED     (1 << 0)
@@ -28,7 +29,12 @@
 uint64_t *vmxon_region = NULL; 
 uint64_t *vmcs_region  = NULL; 
 
-static inline usigned long long notrace __rdmsr1(unsigned int msr)
+asmlinkage void ex_handler_rdmsr_unsafe(void); 
+asmlinkage void ex_handler_rdmsr_unsafe(void)
+{
+
+}
+static inline unsigned long long notrace __rdmsr1(unsigned int msr)
 {
     /* low = eax = 0-31 
      * high = edx = 32-63 */  
@@ -39,12 +45,9 @@ static inline usigned long long notrace __rdmsr1(unsigned int msr)
         "1: rdmsr\n"
         "2:\n"
         /*switch to exception table temporarily */ 
-        ".pushsection __ex_table. \"a\"\n"
-
-        ".balign 4\n"
-        ".long (1b) -. \n"
-        ".long (2b) - .\n"
-        ".long ex_handler_rdmsr_unsafe - .\n"
+        ".pushsection __ex_table, \"a\"\n"
+        ".balign 8\n"
+        ".long 1b, 2b, ex_handler_rdmsr_unsafe - .\n"
         ".popsection\n"
 
         : "=a" (low), "=d" (high) 
@@ -56,7 +59,7 @@ static inline usigned long long notrace __rdmsr1(unsigned int msr)
 }
 
 
-static inline uint32_t vmcs_revison_id(void)
+static inline uint32_t vmcs_revision_id(void)
 {
     return __rdmsr1(MSR_IA32_VMX_BASIC); 
 }
@@ -69,11 +72,10 @@ static inline uint8_t _vmxon(uint64_t phys)
         "vmxon %[pa]; setna %[ret]"
         :[ret]"=rm"(ret)
         :[pa]"m"(phys)
-        :"cc, memory
+        :"cc", "memory"
     );
 
     return ret; 
 }
-
 
 #endif 

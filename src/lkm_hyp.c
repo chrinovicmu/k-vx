@@ -15,28 +15,21 @@
 #include <linux/slab.h>
 #include <asm/asm.h>
 #include <asm/errno.h> 
-#include <utils.h>
+#include "lkm_hyp.h"
 
 /*check CPUID.1:ECX.VMX[bit 5] = 1 */ 
-bool vmx_surpport(void) 
+bool vmx_support(void) 
 {
-    int get_vmx_surpport; 
-    int vmx_bit; 
+    unsigned int ecx; 
 
-    __asm__("mov %1. %rax"); 
-    __asm__("cpuid"); 
-    __asm__("mov %%ecx, %0\n\t
-            :"=r" (get_vmx_surpport)); 
+   __asm__ volatile (
+        "cpuid"
+        : "=c"(ecx)        
+        : "a"(1)          
+        : "ebx", "edx"
+    );  
 
-    vmx_bit = (get_vmx_surpport >> 5) & 0x1;
-
-    if(vmx_bit == 1)
-    {
-        return true; 
-    }
-    else{
-        return false;
-    }
+    return (ecx & (1 << 5)) != 0;  
 }
 
 bool get_vmx_operation(void)
@@ -69,7 +62,7 @@ bool get_vmx_operation(void)
     required = IA32_FEATURE_CONTROL_LOCKED; 
     required |= IA32_FEATURE_CONTROL_MSR_VMXON_ENABLE_OUTSIDE_SMX; 
 
-    feature_control = _rdmsr1(MSR_IA32_FEATURE_CONTROL);
+    feature_control = __rdmsr1(MSR_IA32_FEATURE_CONTROL);
 
     printk(KERN_INFO "RDMSR output id %ld", (long)feature_control);
     
@@ -77,13 +70,13 @@ bool get_vmx_operation(void)
     {
         /*bit 0-31(low): 0s *
         * bit 32-63(high): modified feature value */  
-        wrmsr(MSR_IA32_FEATURE_CONTROL, feature_control | required, low1)
+        wrmsr(MSR_IA32_FEATURE_CONTROL, feature_control | required, low1);
     }
 
     /*ensure bits in cr0 and cr4 are valid for VMX operation*/
 
-    unsigned long cr0; 
-    unsigned long cr4; 
+    cr4 = 0; 
+    unsigned long cr0;  
 
     __asm__ __volatile__ (
         "mov %%cr0, %0"
@@ -121,6 +114,7 @@ bool get_vmx_operation(void)
 
     long int vmxon_phy_region = 0; 
 
+    /*allocate 4kb memory for vmxon region */  
     vmxon_region = kzalloc(VMXON_REGION_PAGE_SIZE, GFP_KERNEL); 
     
     if(!vmxon_region)
@@ -142,5 +136,41 @@ bool get_vmx_operation(void)
     return true;
 }
 
+static int __init hyp_init(void)
+{
+    if(!vmx_support())
+    {
+        printk(KERN_INFO "VMX not surpported! EXITING"); 
+        return 0; 
+    }
 
+    printk(KERN_INFO "VMX is surpported! CONTINUING"); 
 
+    if(!get_vmx_operation())
+    {
+        printk(KERN_INFO "VMX operation failed! EXITING"); 
+        return 0; 
+    }
+
+    printk(KERN_INFO "VMX operation succeeded! CONTINUING"); 
+
+    __asm__ __volatile__ (
+        "vmxoff\n"
+        : : 
+        :"cc"
+    ); 
+    return 0; 
+}
+
+static void __exit hyp_exit(void)
+{
+    printk(KERN_INFO "exiting hypervisor\n"); 
+}
+
+module_init(hyp_init); 
+module_exit(hyp_exit); 
+
+MODULE_LICENSE("Dual BSD/GPL");
+MODULE_AUTHOR("Chrinovic M");
+MODULE_DESCRIPTION("Lightweight Hypervisior ");
+    

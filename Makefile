@@ -1,25 +1,23 @@
 
-ifeq($(KERNELRELEASE), )
-	
-	KERNELDIR ?= /lib/modules/$(shell uname -r)/build 
-	PWD := $(shell pwd)
-	
+ifeq ($(KERNELRELEASE),)
+
+KERNELDIR ?= /lib/modules/$(shell uname -r)/build
+PWD := $(shell pwd)
+
 modules:
-
-	$(MAKE) -C $(KERNELDIR) M=$(PWD) modules EXTRA_CFLAGS=" -g -DDEBUG"
-
+	$(MAKE) -C $(KERNELDIR) M=$(PWD) modules ccflags-y="-g -DDEBUG"
 
 modules_install:
 	$(MAKE) -C $(KERNELDIR) M=$(PWD) modules_install
 
 clean:
+	rm -rf *.o *~ core .depend .*.cmd *.ko *.mod.c .tmp_versions
 
-	rm -rf *.o *~ core .depend .*.cmd *.ko *.mod.c *.tmp_versions
-
-.PHONY:
+.PHONY: modules modules_install clean
 
 else
 
-	obj-m := hypervisor.o 
+obj-m := lkm_hyp.o
+ccflags-y += -mcmodel=kernel
 
-endif 
+endif
