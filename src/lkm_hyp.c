@@ -136,6 +136,82 @@ bool get_vmx_operation(void)
     return true;
 }
 
+
+bool vmcs_set(void)
+{
+    long int vmcs_phy_region = 0; 
+
+    /*allocate 4kb memory for vmcs region */ 
+
+    if(!allocate_vmcs_region())
+    {
+        return false; 
+    }
+    
+    vmcs_phy_region = __pa(vmcs_region); 
+
+    /*insert revison identifier in first 32 bits of vmcs region*/ 
+
+    *(uint32_t *) vmcs_region = vmxon_phy_region();
+
+    if(_vmptrld(vmcs_phy_region))
+    {
+        return flase; 
+    }
+    return true; 
+
+}
+
+/*set up vmcs execution control field */ 
+
+bool init_vmcs_control_field(void) 
+{
+    /*setting pin based controls 
+     * proc based controls
+     * vm exit and entry controls */
+
+    /*  pin-based controls */ 
+    uint64_t pinbased_control_msr = __rdmsr1(MSR_IA32_VMX_PINBASED_CTLS);
+    uint32_t pin_allowed0 = (uint32_t)(pinbased_control_msr & 0xFFFFFFFF);
+    uint32_t pin_allowed1 = (uint32_t)(pinbased_control_msr >> 32);
+    uint32_t pinbased_control_desired = 0; // Specify your desired features here
+    uint32_t pinbased_control_final = (pinbased_control_desired | pin_allowed1) & (pin_allowed0 | pin_allowed1);
+    _vmwrite(PIN_BASED_EXEC_CONTROLS, pinbased_control_final);
+
+    /* primary processor-based controls */ 
+    uint64_t procbased_control_msr = __rdmsr1(MSR_IA32_VMX_PROCBASED_CTLS);
+    uint32_t proc_allowed0 = (uint32_t)(procbased_control_msr & 0xFFFFFFFF);
+    uint32_t proc_allowed1 = (uint32_t)(procbased_control_msr >> 32);
+    uint32_t procbased_control_desired = 0; 
+    uint32_t procbased_control_final = (procbased_control_desired | proc_allowed1) & (proc_allowed0 | proc_allowed1);
+    _vmwrite(PROC_BASED_EXEC_CONTROLS, procbased_control_final);
+
+    /* secondary processor-based controls */ 
+    uint64_t procbased_secondary_control_msr = __rdmsr1(MSR_IA32_VMX_PROCBASED_CTLS2);
+    uint32_t proc_secondary_allowed0 = (uint32_t)(procbased_secondary_control_msr & 0xFFFFFFFF);
+    uint32_t proc_secondary_allowed1 = (uint32_t)(procbased_secondary_control_msr >> 32);
+    uint32_t procbased_secondary_control_desired = 0;
+    uint32_t procbased_secondary_control_final = (procbased_secondary_control_desired | proc_secondary_allowed1) & (proc_secondary_allowed0 | proc_secondary_allowed1);
+    _vmwrite(PROC2_BASED_EXEC_CONTROLS, procbased_secondary_control_final);
+
+    /* vm-exit controls */
+    uint64_t vm_exit_control_msr = __rdmsr1(MSR_IA32_VMX_EXIT_CTLS);
+    uint32_t vm_exit_allowed0 = (uint32_t)(vm_exit_control_msr & 0xFFFFFFFF);
+    uint32_t vm_exit_allowed1 = (uint32_t)(vm_exit_control_msr >> 32);
+    uint32_t vm_exit_control_desired = 0; 
+    uint32_t vm_exit_control_final = (vm_exit_control_desired | vm_exit_allowed1) & (vm_exit_allowed0 | vm_exit_allowed1);
+    _vmwrite(VM_EXIT_CONTROLS, vm_exit_control_final);
+
+    /* vm-entry controls */ 
+    uint64_t vm_entry_control_msr = __rdmsr1(MSR_IA32_VMX_ENTRY_CTLS);
+    uint32_t vm_entry_allowed0 = (uint32_t)(vm_entry_control_msr & 0xFFFFFFFF);
+    uint32_t vm_entry_allowed1 = (uint32_t)(vm_entry_control_msr >> 32);
+    uint32_t vm_entry_control_desired = 0; 
+    uint32_t vm_entry_control_final = (vm_entry_control_desired | vm_entry_allowed1) & (vm_entry_allowed0 | vm_entry_allowed1);
+    _vmwrite(VM_ENTRY_CONTROLS, vm_entry_control_final);
+}
+}
+
 static int __init hyp_init(void)
 {
     if(!vmx_support())
