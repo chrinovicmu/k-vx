@@ -1,1 +1,0 @@
-cmd_/home/chrinovic/Tech/Hypervisors/Hypervisor-linux/src/lkm_hyp.ko := ld -r -m elf_x86_64 -z noexecstack --no-warn-rwx-segments --build-id=sha1  -T arch/x86/module.lds -o /home/chrinovic/Tech/Hypervisors/Hypervisor-linux/src/lkm_hyp.ko /home/chrinovic/Tech/Hypervisors/Hypervisor-linux/src/lkm_hyp.o /home/chrinovic/Tech/Hypervisors/Hypervisor-linux/src/lkm_hyp.mod.o;  true
