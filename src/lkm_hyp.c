@@ -210,7 +210,6 @@ bool init_vmcs_control_field(void)
     uint32_t vm_entry_control_final = (vm_entry_control_desired | vm_entry_allowed1) & (vm_entry_allowed0 | vm_entry_allowed1);
     _vmwrite(VM_ENTRY_CONTROLS, vm_entry_control_final);
 }
-}
 
 static int __init hyp_init(void)
 {
