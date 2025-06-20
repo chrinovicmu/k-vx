@@ -1,5 +1,6 @@
 #include <linux/init.h> 
-#include <linux/module.h> 
+#include <linux/module.h>
+#include <linux/kernel.h> 
 #include <linux/errno.h>
 #include <linux/types.h> 
 #include <linux/const.h> 
@@ -13,11 +14,28 @@
 #include <linux/uaccess.h>
 #include <linux/gfp.h> 
 #include <linux/slab.h>
+#include <linux/string.h>
+#include <linux/mm.h>
 #include <asm/asm.h>
+#include <asm/pgtable.h>
 #include <asm/errno.h> 
 #include "lkm_hyp.h"
 
-/*check CPUID.1:ECX.VMX[bit 5] = 1 */ 
+
+#define CHECK_VMWRITE(field_enc, value)                                 \
+    do{                                                                 \
+        if(_vmwrite((field_enc), (value))){                             \
+            printk(KERN_INFO "VMWrite failed: field_encoding: 0x%lx\n", \
+                   (unsigned long)(field_enc));                         \
+            return -EIO;                                                \ 
+        }                                                               \
+    }while(0);                                          
+
+
+
+/*check for vmx surppot on processor 
+*check CPUID.1:ECX.VMX[bit 5] = 1 */ 
+
 bool vmx_support(void) 
 {
     unsigned int ecx; 
@@ -139,7 +157,7 @@ bool get_vmx_operation(void)
 
 bool vmcs_set(void)
 {
-    long int vmcs_phy_region = 0; 
+    phys_addr_t vmcs_phy_region = 0; 
 
     /*allocate 4kb memory for vmcs region */ 
 
@@ -148,7 +166,7 @@ bool vmcs_set(void)
         return false; 
     }
     
-    vmcs_phy_region = __pa(vmcs_region); 
+    vmcs_phy_region = virt_to_phys(vmcs_region); 
 
     /*insert revison identifier in first 32 bits of vmcs region*/ 
 
@@ -163,52 +181,113 @@ bool vmcs_set(void)
 }
 
 /*set up vmcs execution control field */ 
+int set_io_bitmap(void)
+{
+    phys_addr_t io_bitmap_phys; 
 
+    /*alllocate 2kb pages for the io_bitmap */ 
+    io_bitmap = __get_free_pages(GFP_KERNEL, IO_BITMAP_PAGES_ORDER); 
+
+    if(!io_bitmap)
+    {
+        printk(KERN_INFO "Failed to alllocate I/O bitmap memory\n"); 
+        return -ENOMEM; 
+    }
+
+    /*clear entire io bitmap to 0 : allow i/o ports without vm exits */ 
+    memset((void*)io_bitmap, 0, IO_BITMAP_SIZE);
+
+    io_bitmap_phys = virt_to_phys((void*)io_bitmap);
+
+    printk(KERN_INFO "Allocated and cleared I/O bitmap at VA %p PA 0x%llx\n",
+           (void*)io_bitmap, (unsigned long long)io_bitmap_phys); 
+
+    if(_vmwrite(VMCS_IO_BITMAP_A, io_bitmap_phys) != 0)
+    {
+        printk(KERN_INFO "VMWrite IO_BITMAP_A failed\n"); 
+        free_pages(io_bitmap, IO_BITMAP_PAGES_ORDER); 
+        return -EIO;
+    }
+
+    if(_vmwrite(VMCS_IO_BITMAP_B, io_bitmap_phys + IO_BITMAP_PAGE_SIZE) != 0)
+    {
+        printk(KERN_INFO "VMWrite IO_BITMAP_B failed\n"); 
+        free_pages(io_bitmap, IO_BITMAP_PAGES_ORDER); 
+        return -EIO; 
+    }
+
+    printk(KERN_INFO "VMCS I/O Bitmap field set successfully\n");
+    return 0; 
+}
+
+void free_io_bitmap(void)
+{
+    if(io_bitmap)
+    {
+        free_pages(io_bitmap, IO_BITMAP_PAGES_ORDER); 
+    }
+}
 bool init_vmcs_control_field(void) 
 {
     /*setting pin based controls 
      * proc based controls
      * vm exit and entry controls */
 
-    /*  pin-based controls */ 
+
+      /* pin-based execution controls */ 
+
     uint64_t pinbased_control_msr = __rdmsr1(MSR_IA32_VMX_PINBASED_CTLS);
     uint32_t pin_allowed0 = (uint32_t)(pinbased_control_msr & 0xFFFFFFFF);
     uint32_t pin_allowed1 = (uint32_t)(pinbased_control_msr >> 32);
     uint32_t pinbased_control_desired = 0; // Specify your desired features here
     uint32_t pinbased_control_final = (pinbased_control_desired | pin_allowed1) & (pin_allowed0 | pin_allowed1);
-    _vmwrite(PIN_BASED_EXEC_CONTROLS, pinbased_control_final);
+    CHECK_VMWRITE(PIN_BASED_EXEC_CONTROLS, pinbased_control_final);
 
     /* primary processor-based controls */ 
+
     uint64_t procbased_control_msr = __rdmsr1(MSR_IA32_VMX_PROCBASED_CTLS);
     uint32_t proc_allowed0 = (uint32_t)(procbased_control_msr & 0xFFFFFFFF);
     uint32_t proc_allowed1 = (uint32_t)(procbased_control_msr >> 32);
     uint32_t procbased_control_desired = 0; 
     uint32_t procbased_control_final = (procbased_control_desired | proc_allowed1) & (proc_allowed0 | proc_allowed1);
-    _vmwrite(PROC_BASED_EXEC_CONTROLS, procbased_control_final);
+    CHECK_VMWRITE(PROC_BASED_EXEC_CONTROLS, procbased_control_final);
 
     /* secondary processor-based controls */ 
+
     uint64_t procbased_secondary_control_msr = __rdmsr1(MSR_IA32_VMX_PROCBASED_CTLS2);
     uint32_t proc_secondary_allowed0 = (uint32_t)(procbased_secondary_control_msr & 0xFFFFFFFF);
     uint32_t proc_secondary_allowed1 = (uint32_t)(procbased_secondary_control_msr >> 32);
     uint32_t procbased_secondary_control_desired = 0;
-    uint32_t procbased_secondary_control_final = (procbased_secondary_control_desired | proc_secondary_allowed1) & (proc_secondary_allowed0 | proc_secondary_allowed1);
-    _vmwrite(PROC2_BASED_EXEC_CONTROLS, procbased_secondary_control_final);
+    uint32_t procbased_secondary_control_final = (procbased_secondary_control_desired | proc_secondary_allowed1) & 
+                                                 (proc_secondary_allowed0 | proc_secondary_allowed1);
+    CHECK_VMWRITE(PROC2_BASED_EXEC_CONTROLS, procbased_secondary_control_final);
 
     /* vm-exit controls */
+
     uint64_t vm_exit_control_msr = __rdmsr1(MSR_IA32_VMX_EXIT_CTLS);
     uint32_t vm_exit_allowed0 = (uint32_t)(vm_exit_control_msr & 0xFFFFFFFF);
     uint32_t vm_exit_allowed1 = (uint32_t)(vm_exit_control_msr >> 32);
     uint32_t vm_exit_control_desired = 0; 
     uint32_t vm_exit_control_final = (vm_exit_control_desired | vm_exit_allowed1) & (vm_exit_allowed0 | vm_exit_allowed1);
-    _vmwrite(VM_EXIT_CONTROLS, vm_exit_control_final);
+    CHECK_VMWRITE(VM_EXIT_CONTROLS, vm_exit_control_final);
 
     /* vm-entry controls */ 
+
     uint64_t vm_entry_control_msr = __rdmsr1(MSR_IA32_VMX_ENTRY_CTLS);
     uint32_t vm_entry_allowed0 = (uint32_t)(vm_entry_control_msr & 0xFFFFFFFF);
     uint32_t vm_entry_allowed1 = (uint32_t)(vm_entry_control_msr >> 32);
     uint32_t vm_entry_control_desired = 0; 
     uint32_t vm_entry_control_final = (vm_entry_control_desired | vm_entry_allowed1) & (vm_entry_allowed0 | vm_entry_allowed1);
-    _vmwrite(VM_ENTRY_CONTROLS, vm_entry_control_final);
+    CHECK_VMWRITE(VM_ENTRY_CONTROLS, vm_entry_control_final);
+
+    /*set exception bitmap to 0 to ignore vmexit for any guest exception */ 
+
+    uint32_t exception_bitmap = 0; 
+    CHECK_VMWRITE(VMCS_EXCEPTION_BITMAP, exception_bitmap);
+
+    printk(KERN_INFO "VMCS control fields set successfully\n");
+    return 0; // Success
+
 }
 
 static int __init hyp_init(void)
@@ -239,7 +318,10 @@ static int __init hyp_init(void)
 
 static void __exit hyp_exit(void)
 {
-    printk(KERN_INFO "exiting hypervisor\n"); 
+    free_io_bitmap(); 
+    printk(KERN_INFO "FreeiNG I/O bitmap memory\n");
+
+    printk(KERN_INFO "Exiting hypervisor\n"); 
 }
 
 module_init(hyp_init); 

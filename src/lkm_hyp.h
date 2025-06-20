@@ -27,21 +27,35 @@
 #define VMCS_REGION_PAGE_SIZE           4096
 
 
-/*vm-execution control field */ 
+/*------------- vm-execution control field ---------------*/ 
 
 /*vmcs control field MSRs */ 
+
 #define MSR_IA32_VMX_PINBASED_CTLS      0x00000481 
 #define MSR_IA32_VMX_PROCBASED_CTLS     0x00000482
 #define MSR_IA32_VMX_EXIT_CTLS          0x00000483 
 #define MSR_IA32_VMX_ENTRY_CTLS         0x00000484 
 
 /*control field encodings  */  
+
 #define PIN_BASED_VM_EXEC_CONTROLS      0x00004000 
 #define PROC_BASED_VM_EXEC_CONTROLS     0x00004002 
 #define VM_EXIT_CONTROLS                0x0000400c 
 #define VM_ENTRY_CONTROLS               0x00004012 
 
 #define VM_INSTRUCTION_ERROR_FIELD      0x4400 
+
+#define VMCS_EXCEPTION_BITMAP           0x00004004
+
+#define VMCS_IO_BITMAP_A                0x00002000 
+#define VMCS_IO_BITMAP_B                0x00002002 
+
+#define IO_BITMAP_PAGE_SIZE             4096
+#define IO_BITMAP_PAGES_ORDER           1 
+#define IO_BITMAP_SIZE                  (IO_BITMAP_PAGE_SIZE << IO_BITMAP_PAGES_ORDER);
+
+uint8_t *io_bitmap; 
+
 /*memory regions */
 
 uint64_t *vmxon_region = NULL; 
@@ -52,10 +66,12 @@ asmlinkage void ex_handler_rdmsr_unsafe(void)
 {
 
 }
+
 static inline unsigned long long notrace __rdmsr1(unsigned int msr)
 {
     /* low = eax = 0-31 
      * high = edx = 32-63 */  
+
     unsigned int high;  
     unsigned int low; 
 
