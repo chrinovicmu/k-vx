@@ -1,24 +1,22 @@
 ifeq ($(KERNELRELEASE),)
-
-KERNELDIR ?= /lib/modules/$(shell uname -r)/build
-PWD := $(shell pwd)
+    # Called from command line
+    KERNELDIR ?= /lib/modules/$(shell uname -r)/build
+    PWD := $(shell pwd)
 
 modules:
-	$(MAKE) -C $(KERNELDIR) M=$(PWD) modules ccflags-y="-g -DDEBUG"
+	$(MAKE) -C $(KERNELDIR) M=$(PWD) modules
 
 modules_install:
 	$(MAKE) -C $(KERNELDIR) M=$(PWD) modules_install
 
 clean:
-	rm -rf src/*.o src/*~ src/core src/.depend src/.*.cmd src/*.ko src/*.mod.c src/.tmp_versions
-	git rm -f --ignore-unmatch src/*.o src/*.ko src/*.mod.c
+	$(MAKE) -C $(KERNELDIR) M=$(PWD) clean
+	rm -rf *.o *~ core .depend .*.cmd *.ko *.mod.c .tmp_versions *.symvers *.order
 
 .PHONY: modules modules_install clean
 
 else
-
-obj-m := src/lkm_hyp.o
-ccflags-y += -mcmodel=kernel
-
+    # Called from kernel build system
+    obj-m := lkm_hyp.o
+    ccflags-y += -mcmodel=kernel -mno-red-zone -g -DDEBUG
 endif
-
