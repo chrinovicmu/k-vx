@@ -1,0 +1,1 @@
+cmd_/home/chrinovic/Tech/Hypervisors/Hypervisor-linux/Module.symvers :=  sed 's/ko$$/o/'  /home/chrinovic/Tech/Hypervisors/Hypervisor-linux/modules.order | scripts/mod/modpost -m      -o /home/chrinovic/Tech/Hypervisors/Hypervisor-linux/Module.symvers -e -i Module.symvers -T - 

@@ -38,21 +38,21 @@
 
 /*control field encodings  */  
 
-#define PIN_BASED_VM_EXEC_CONTROLS      0x00004000 
-#define PROC_BASED_VM_EXEC_CONTROLS     0x00004002 
-#define VM_EXIT_CONTROLS                0x0000400c 
-#define VM_ENTRY_CONTROLS               0x00004012 
+#define VMCS_PIN_BASED_EXEC_CONTROLS      0x00004000 
+#define VMCS_PROC_BASED_EXEC_CONTROLS     0x00004002 
+#define VMCS_EXIT_CONTROLS                0x0000400c 
+#define VMCS_ENTRY_CONTROLS               0x00004012 
 
-#define VM_INSTRUCTION_ERROR_FIELD      0x4400 
+#define VMCS_INSTRUCTION_ERROR_FIELD      0x4400 
 
 #define VMCS_EXCEPTION_BITMAP           0x00004004
 
 #define VMCS_IO_BITMAP_A                0x00002000 
 #define VMCS_IO_BITMAP_B                0x00002002 
 
-#define IO_BITMAP_PAGE_SIZE             4096
-#define IO_BITMAP_PAGES_ORDER           1 
-#define IO_BITMAP_SIZE                  (IO_BITMAP_PAGE_SIZE << IO_BITMAP_PAGES_ORDER);
+#define VMCS_IO_BITMAP_PAGE_SIZE             4096
+#define VMCS_IO_BITMAP_PAGES_ORDER           1 
+#define VMCS_IO_BITMAP_SIZE                  (VMCS_IO_BITMAP_PAGE_SIZE << VMCS_IO_BITMAP_PAGES_ORDER)
 
 uint8_t *io_bitmap; 
 
@@ -134,8 +134,9 @@ static inline int _vmptrld(uint64_t vmcs_phys_addr)
         "vmptrld %[pa]; setna %[ret]"
         :[ret] "=rm"(ret)
         :[pa]  "m"  (vmcs_phys_addr)
-        : "cc", memory
+        : "cc", "memory"
     ); 
+    return ret; 
 }
 
 static inline int _vmread(uint64_t field_enc, uint64_t *value)
@@ -144,7 +145,7 @@ static inline int _vmread(uint64_t field_enc, uint64_t *value)
     uint64_t val; 
 
     __asm__ __volatile__ (
-        "vmread %[field], %[val]; setna %[ret]"
+        "vmread %[field_enc], %[val]; setna %[ret]"
         :[ret] "=rm"(ret), [val] "=r"(val)
         :[field_enc] "r" (field_enc)
         :"cc"
@@ -177,7 +178,7 @@ static inline int _vmwrite(uint64_t field_enc, uint64_t value)
     {
         uint64_t error_code; 
 
-        if(_vmread(VM_INSTRUCTION_ERROR_FIELD, &error_code) = 0)
+        if(_vmread(VMCS_INSTRUCTION_ERROR_FIELD, &error_code) == 0)
         {
             return (int)error_code; 
         } 

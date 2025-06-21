@@ -1,4 +1,3 @@
-
 ifeq ($(KERNELRELEASE),)
 
 KERNELDIR ?= /lib/modules/$(shell uname -r)/build
@@ -11,13 +10,15 @@ modules_install:
 	$(MAKE) -C $(KERNELDIR) M=$(PWD) modules_install
 
 clean:
-	rm -rf *.o *~ core .depend .*.cmd *.ko *.mod.c .tmp_versions
+	rm -rf src/*.o src/*~ src/core src/.depend src/.*.cmd src/*.ko src/*.mod.c src/.tmp_versions
+	git rm -f --ignore-unmatch src/*.o src/*.ko src/*.mod.c
 
 .PHONY: modules modules_install clean
 
 else
 
-obj-m := lkm_hyp.o
+obj-m := src/lkm_hyp.o
 ccflags-y += -mcmodel=kernel
 
 endif
+
