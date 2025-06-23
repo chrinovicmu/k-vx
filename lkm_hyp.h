@@ -49,7 +49,7 @@
 
 /* for checking bit 28 of procbased control if msr bitmaps is enabled (bit 28 = 1) */ 
 
-#define VMCS_MSR_BITMAP_BIT                 28 
+#define VMCS_MSR_BITMAPS_BIT                 28 
 
 /*msr vitmap field in the VMCS */ 
 
@@ -116,7 +116,7 @@ static inline unsigned long long notrace __rdmsr1(unsigned int msr)
 }
 
 
-static inline uint64_t read_cr0(void)
+static inline uint64_t _read_cr0(void)
 {
     uint64_t val;
 
@@ -128,7 +128,7 @@ static inline uint64_t read_cr0(void)
     return val;
 }
 
-static inline uint64_t read_cr2(void)
+static inline uint64_t _read_cr2(void)
 {
     uint64_t val;
 
@@ -140,7 +140,7 @@ static inline uint64_t read_cr2(void)
     return val;
 }
 
-static inline uint64_t read_cr3(void) 
+static inline uint64_t _read_cr3(void) 
 {
     uint64_t val;
 
@@ -152,7 +152,7 @@ static inline uint64_t read_cr3(void)
     return val;
 }
 
-static inline uint64_t read_cr4(void) 
+static inline uint64_t _read_cr4(void) 
 {
     uint64_t val;
 
@@ -166,7 +166,7 @@ static inline uint64_t read_cr4(void)
 
 /*get revision id*/ 
 
-static inline uint32_t vmcs_revision_id(void)
+static inline uint32_t _vmcs_revision_id(void)
 {
     return __rdmsr1(MSR_IA32_VMX_BASIC); 
 }
@@ -187,7 +187,7 @@ static inline uint8_t _vmxon(uint64_t vmxon_phys_addr)
 
 /*allocate physical memory for vmcs region */ 
 
-bool alloc_vmcs_region(void)
+bool _alloc_vmcs_region(void)
 {
     vmcs_region = kzalloc(VMCS_REGION_PAGE_SIZE, GFP_KERNEL); 
 

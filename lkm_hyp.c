@@ -160,7 +160,7 @@ bool get_vmx_operation(void)
 
     /*write rivison id to first 32bit(4bytes) of vmxon region memory */ 
  
-    *(uint32_t *)vmxon_region = vmcs_revision_id(); 
+    *(uint32_t *)vmxon_region = _vmcs_revision_id(); 
 
     if(_vmxon((uint64_t)vmxon_phy_region))
     {
@@ -176,7 +176,7 @@ bool vmcs_set(void)
 
     /*allocate 4kb memory for vmcs region */ 
 
-    if(!alloc_vmcs_region())
+    if(!_alloc_vmcs_region())
     {
         return false; 
     }
@@ -185,7 +185,7 @@ bool vmcs_set(void)
 
     /*insert revison identifier in first 32 bits of vmcs region*/ 
 
-    *(uint32_t *) vmcs_region = vmcs_revision_id();
+    *(uint32_t *) vmcs_region = _vmcs_revision_id();
 
     if(_vmptrld((uint64_t)vmcs_phy_region))
     {
@@ -235,6 +235,7 @@ int set_io_bitmap(void)
     }
 
     printk(KERN_INFO "VMCS I/O Bitmap field set successfully\n");
+
     return 0; 
 }
 
@@ -249,8 +250,8 @@ void cleanup_io_bitmap(void)
  
 int setup_cr_mask_and_shadows(void) 
 {
-    uint64_t real_cr0 = real_cr0(); 
-    uint64_t real_cr4 = real_cr4(); 
+    uint64_t real_cr0 = _read_cr0(); 
+    uint64_t real_cr4 = _read_cr4(); 
 
     uint64_t cr0_mask = (1ULL << 31); 
     uint64_t cr4_mask = (1ULL << 20);
@@ -261,10 +262,10 @@ int setup_cr_mask_and_shadows(void)
 
 
     CHECK_VMWRITE(VMCS_CR0_GUEST_HOST_MASK, cr0_mask); 
-    CHECK_VMWRITE(VMCS_CR0_GUEST_READ_SHADOW, cr0_read_shadow); 
+    CHECK_VMWRITE(VMCS_CR0_READ_SHADOW, cr0_read_shadow); 
 
-    CHECK_VMWRITE(VMCS_CR4_GUEST_HOST_MASK, cr0_mask); 
-    CHECK_VMWRITE(VMCS_CR4_GUEST_READ_SHADOW, cr4_read_shadow); 
+    CHECK_VMWRITE(VMCS_CR4_GUEST_HOST_MASK, cr4_mask); 
+    CHECK_VMWRITE(VMCS_CR4_READ_SHADOW, cr4_read_shadow); 
 
     return 0; 
 }
@@ -298,7 +299,7 @@ int set_cr3_targets(uint64_t targets[4])
 
     for (int x = 0; x < 4; ++x)
     {
-        CHECK_VMWRITE(fields[x], targeta[x]);
+        CHECK_VMWRITE(fields[x], targets[x]);
     }
 
     return 0; 
@@ -308,7 +309,7 @@ int set_cr3_targets(uint64_t targets[4])
 
 void * setup_msr_bitmap(void)
 {
-    msr_bitmap = kmalloc(4096, GFP_KERNEL | _GFP_ZERO); 
+    msr_bitmap = kmalloc(4096, GFP_KERNEL | __GFP_ZERO); 
 
     if(!msr_bitmap)
     {
@@ -450,7 +451,7 @@ static void __exit hyp_exit(void)
     printk(KERN_INFO "cleaning up I/O bitmap memory\n");
 
     cleanup_msr_bitmap(); 
-    printk(KERN_INFO "cleaning up MSR bitmap\n")
+    printk(KERN_INFO "cleaning up MSR bitmap\n");
 
     printk(KERN_INFO "Exiting hypervisor\n"); 
 }
