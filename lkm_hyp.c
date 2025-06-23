@@ -51,6 +51,16 @@ bool vmx_support(void)
     return (ecx & (1 << 5)) != 0;  
 }
 
+/*check if processor supports MSR bitmap  */ 
+
+bool msr_bitmap_support(void)
+{
+    uint64_t proc_ctls = __rdmsr1(MSR_IA32_VMX_PROCBASED_CTLS); 
+    uint32_t allowed_1_settings = (uint32_t)(proc_ctls >> 32); 
+
+    return (allowed_1_settings & (1 << VMCS_MSR_BITMAPS_BIT)) != 0;
+}
+
 bool get_vmx_operation(void)
 {
     /*set bit 13 of CR4 to enbale VMX virtualization on CPU */ 
@@ -186,6 +196,7 @@ bool vmcs_set(void)
 }
 
 
+
 int set_io_bitmap(void)
 {
     phys_addr_t io_bitmap_phys; 
@@ -227,13 +238,115 @@ int set_io_bitmap(void)
     return 0; 
 }
 
-void free_io_bitmap(void)
+void cleanup_io_bitmap(void)
 {
     if(io_bitmap)
     {
         free_pages((unsigned long)io_bitmap, VMCS_IO_BITMAP_PAGES_ORDER); 
+        io_bitmap = NULL; 
     }
 }
+ 
+int setup_cr_mask_and_shadows(void) 
+{
+    uint64_t real_cr0 = real_cr0(); 
+    uint64_t real_cr4 = real_cr4(); 
+
+    uint64_t cr0_mask = (1ULL << 31); 
+    uint64_t cr4_mask = (1ULL << 20);
+
+    /*set read shadow: fake CRO.PG = 0 and CR4.SMEP=0 for guest */
+    uint64_t cr0_read_shadow = real_cr0 & ~(1ULL << 31); 
+    uint64_t cr4_read_shadow = real_cr4 & ~(1ULL << 20); 
+
+
+    CHECK_VMWRITE(VMCS_CR0_GUEST_HOST_MASK, cr0_mask); 
+    CHECK_VMWRITE(VMCS_CR0_GUEST_READ_SHADOW, cr0_read_shadow); 
+
+    CHECK_VMWRITE(VMCS_CR4_GUEST_HOST_MASK, cr0_mask); 
+    CHECK_VMWRITE(VMCS_CR4_GUEST_READ_SHADOW, cr4_read_shadow); 
+
+    return 0; 
+}
+
+
+/*
+ * set_cr3_targets - Sets the CR3-target values in the VMCS.
+ *
+ * CR3-target values allow the guest to perform MOV to CR3 instructions
+ * without causing a VM exit, but only if the value being written matches
+ * one of these target values. This can reduce the number of VM exits
+ * during guest context switches or address space changes.
+ *
+ * The Intel VMX architecture allows up to 4 CR3 target values.
+ * If the guest writes any other CR3 value not in this list, a VM exit
+ * will occur as usual.
+ *
+ * @targets: An array of 4 possible CR3 target values.
+ *           (Unused slots should be set to 0.)
+ */
+
+int set_cr3_targets(uint64_t targets[4]) 
+{
+    uint64_t fields[4] = {
+
+        VMCS_CR3_TARGET_VALUE0,
+        VMCS_CR3_TARGET_VALUE1,
+        VMCS_CR3_TARGET_VALUE2,
+        VMCS_CR3_TARGET_VALUE3
+    };
+
+    for (int x = 0; x < 4; ++x)
+    {
+        CHECK_VMWRITE(fields[x], targeta[x]);
+    }
+
+    return 0; 
+}
+
+/*allocate and initialize a 4kb msr bitmap, return it's virtual address */ 
+
+void * setup_msr_bitmap(void)
+{
+    msr_bitmap = kmalloc(4096, GFP_KERNEL | _GFP_ZERO); 
+
+    if(!msr_bitmap)
+    {
+        printk(KERN_INFO "Failed to allocate MSR bitmap\n"); 
+        return NULL; 
+    }
+
+    uint32_t msr_index = 0x174; 
+    uint8_t *bitmap = (uint8_t *)msr_bitmap; 
+    uint32_t byte = msr_index / 8; 
+    uint8_t bit = msr_index % 8; 
+
+    bitmap[byte] |= (1 << bit); 
+
+    return msr_bitmap;
+}
+
+/*load v,cs bitmap into VMCS */ 
+
+int load_msr_bitmap(void *msr_bitmap_virt_addr)
+{
+    uint64_t msr_bitmap_phys_addr; 
+
+    msr_bitmap_phys_addr = virt_to_phys(msr_bitmap_virt_addr); 
+
+    CHECK_VMWRITE(VMCS_MSR_BITMAP, msr_bitmap_phys_addr);
+
+    return 0; 
+}
+
+void cleanup_msr_bitmap(void) 
+{
+    if (msr_bitmap) {
+        kfree(msr_bitmap);
+        msr_bitmap = NULL;
+    }
+}
+
 
 
 /*set up vmcs execution control field */ 
@@ -333,8 +446,11 @@ static int __init hyp_init(void)
 
 static void __exit hyp_exit(void)
 {
-    free_io_bitmap(); 
-    printk(KERN_INFO "FreeiNG I/O bitmap memory\n");
+    cleanup_io_bitmap(); 
+    printk(KERN_INFO "cleaning up I/O bitmap memory\n");
+
+    cleanup_msr_bitmap(); 
+    printk(KERN_INFO "cleaning up MSR bitmap\n")
 
     printk(KERN_INFO "Exiting hypervisor\n"); 
 }
