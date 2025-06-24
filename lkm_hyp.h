@@ -74,6 +74,15 @@
 #define VMCS_CR3_TARGET_VALUE2              0x00006010
 #define VMCS_CR3_TARGET_VALUE3              0x00006012
 
+/*for storing MSRs on vm exit */
+
+#define MSR_AREA_ENTRIES                    1 
+#define VM_EXIT_MSR_STORE_COUNT             0x00002004 
+#define VM_EXIT_MSR_STORE_ADDR              0x00002006
+#define VM_ENTRY_MSR_LOAD_COUNT             0x00002008 
+#define VM_ENTRY_MSR_LOAD_ADDR              0x0000200A
+
+#define IA32_SYSENTER_CS                    0x00000174
 
 /*memory regions */
 
@@ -185,20 +194,6 @@ static inline uint8_t _vmxon(uint64_t vmxon_phys_addr)
     return ret; 
 }
 
-/*allocate physical memory for vmcs region */ 
-
-bool _alloc_vmcs_region(void)
-{
-    vmcs_region = kzalloc(VMCS_REGION_PAGE_SIZE, GFP_KERNEL); 
-
-    if(!vmcs_region)
-    {
-        printk(KERN_INFO "ERROR alloacating vmcs region\n"); 
-        return false; 
-    }
-    return true; 
-}
-
 static inline int _vmptrld(uint64_t vmcs_phys_addr)
 {
     uint8_t ret; 
@@ -263,4 +258,18 @@ static inline int _vmwrite(uint64_t field_enc, uint64_t value)
 
     }
 }
+
+
+struct _msr_entry 
+{
+    uint32_t index; 
+    uint32_t reserved; 
+    uint64_t value; 
+}__attribute__ ((packed, aligned(16))); 
+
+struct _msr_entry *_vm_exit_msr_area; 
+struct _msr_entry *_vm_entry_msr_area; 
+
+
+
 #endif 

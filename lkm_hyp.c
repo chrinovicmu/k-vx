@@ -28,7 +28,7 @@
 #define CHECK_VMWRITE(field_enc, value)                                 \
     do {                                                               \
         if (_vmwrite((field_enc), (value))) {                           \
-            printk(KERN_INFO "VMWrite failed: field_encoding: 0x%lx\n", \
+            printk(KERN_ERR "VMWrite failed: field_encoding: 0x%lx\n", \
                    (unsigned long)(field_enc));                         \
             return -EIO;                                                \
         }                                                              \
@@ -150,7 +150,7 @@ bool get_vmx_operation(void)
     
     if(!vmxon_region)
     {
-        printk(KERN_INFO "ERROR alloacating vmxon region\n"); 
+        printk(KERN_ERR "Failed to allocate VMXON Region\n"); 
         return false; 
     }
 
@@ -166,18 +166,32 @@ bool get_vmx_operation(void)
     {
         return false; 
     }
+
+    printk(KERN_INFO "VMXON Region setup success\n");
     return true;
 }
 
+void cleanup_vmxon_region(void)
+{
+    if(vmxon_region)
+    {
+        printk(KERN_INFO "Cleaning up VMXON Region...\n"); 
+        kfree(vmxon_region); 
+        vmxon_region = NULL; 
+    }
+}
 
 bool vmcs_set(void)
 {
     phys_addr_t vmcs_phy_region = 0; 
 
     /*allocate 4kb memory for vmcs region */ 
+    
+    vmcs_region = kzalloc(VMCS_REGION_PAGE_SIZE, GFP_KERNEL); 
 
-    if(!_alloc_vmcs_region())
+    if(!vmcs_region)
     {
+        printk(KERN_ERR "Failed to allocate VMCS Region\n"); 
         return false; 
     }
     
@@ -187,15 +201,25 @@ bool vmcs_set(void)
 
     *(uint32_t *) vmcs_region = _vmcs_revision_id();
 
-    if(_vmptrld((uint64_t)vmcs_phy_region))
+    if(!_vmptrld((uint64_t)vmcs_phy_region))
     {
         return false;  
     }
+
+    printk(KERN_INFO "VMCS Region setup success\n");
     return true; 
 
 }
 
-
+void cleanup_vmcs_region(void)
+{
+    if(vmcs_region)
+    {
+        printk(KERN_INFO "Cleaning up VMCS Region...\n"); 
+        kfree(vmcs_region); 
+        vmcs_region = NULL; 
+    }
+}
 
 int set_io_bitmap(void)
 {
@@ -207,7 +231,7 @@ int set_io_bitmap(void)
 
     if(!io_bitmap)
     {
-        printk(KERN_INFO "Failed to alllocate I/O bitmap memory\n"); 
+        printk(KERN_ERR "Failed to alllocate I/O bitmap memory\n"); 
         return -ENOMEM; 
     }
 
@@ -222,14 +246,14 @@ int set_io_bitmap(void)
 
     if(_vmwrite(VMCS_IO_BITMAP_A, (uint64_t)io_bitmap_phys) != 0)
     {
-        printk(KERN_INFO "VMWrite IO_BITMAP_A failed\n"); 
+        printk(KERN_ERR "VMWrite IO_BITMAP_A failed\n"); 
         free_pages((unsigned long)io_bitmap, VMCS_IO_BITMAP_PAGES_ORDER); 
         return -EIO;
     }
 
     if(_vmwrite(VMCS_IO_BITMAP_B, (uint64_t)io_bitmap_phys + VMCS_IO_BITMAP_PAGE_SIZE) != 0)
     {
-        printk(KERN_INFO "VMWrite IO_BITMAP_B failed\n"); 
+        printk(KERN_ERR "VMWrite IO_BITMAP_B failed\n"); 
         free_pages((unsigned long)io_bitmap, VMCS_IO_BITMAP_PAGES_ORDER); 
         return -EIO; 
     }
@@ -243,6 +267,7 @@ void cleanup_io_bitmap(void)
 {
     if(io_bitmap)
     {
+        printk(KERN_INFO "Cleaning up I/O bitmap memory...\n");
         free_pages((unsigned long)io_bitmap, VMCS_IO_BITMAP_PAGES_ORDER); 
         io_bitmap = NULL; 
     }
@@ -265,7 +290,9 @@ int setup_cr_mask_and_shadows(void)
     CHECK_VMWRITE(VMCS_CR0_READ_SHADOW, cr0_read_shadow); 
 
     CHECK_VMWRITE(VMCS_CR4_GUEST_HOST_MASK, cr4_mask); 
-    CHECK_VMWRITE(VMCS_CR4_READ_SHADOW, cr4_read_shadow); 
+    CHECK_VMWRITE(VMCS_CR4_READ_SHADOW, cr4_read_shadow);
+
+    printk(KERN_INFO "VMCS CR4 guest host mask and read shadow setup success\n"); 
 
     return 0; 
 }
@@ -302,6 +329,7 @@ int set_cr3_targets(uint64_t targets[4])
         CHECK_VMWRITE(fields[x], targets[x]);
     }
 
+    printk(KERN_INFO "CR3 targets setup success\n"); 
     return 0; 
 }
 
@@ -313,11 +341,11 @@ void * setup_msr_bitmap(void)
 
     if(!msr_bitmap)
     {
-        printk(KERN_INFO "Failed to allocate MSR bitmap\n"); 
+        printk(KERN_ERR "Failed to allocate MSR bitmap\n"); 
         return NULL; 
     }
 
-    uint32_t msr_index = 0x174; 
+    uint32_t msr_index = IA32_SYSENTER_CS; 
     uint8_t *bitmap = (uint8_t *)msr_bitmap; 
     uint32_t byte = msr_index / 8; 
     uint8_t bit = msr_index % 8; 
@@ -337,18 +365,89 @@ int load_msr_bitmap(void *msr_bitmap_virt_addr)
 
     CHECK_VMWRITE(VMCS_MSR_BITMAP, msr_bitmap_phys_addr);
 
-    return 0; 
+    printk(KERN_INFO "MSR Bitmap setup success\n"); 
+    return 0;
 }
 
 void cleanup_msr_bitmap(void) 
 {
-    if (msr_bitmap) {
+    if (msr_bitmap) 
+    {
+        printk(KERN_INFO "Cleaning up MSR Bitmap memory...\n"); 
         kfree(msr_bitmap);
         msr_bitmap = NULL;
     }
 }
 
 
+int exit_msr_store_area(void)
+{
+    phys_addr_t exit_phys_addr;
+
+    _vm_exit_msr_area = kzalloc(sizeof(struct _msr_entry) * MSR_AREA_ENTRIES, GFP_KERNEL | GFP_DMA); 
+
+    if(!_vm_exit_msr_area)
+    {
+        printk(KERN_ERR "Failed to allocate Exit MSR area memory region\n");
+        return - ENOMEM; 
+    }
+
+    _vm_exit_msr_area[0].index = IA32_SYSENTER_CS; 
+    _vm_exit_msr_area[0].reserved = 0;
+
+    exit_phys_addr = virt_to_phys(_vm_exit_msr_area); 
+
+    CHECK_VMWRITE(VM_EXIT_MSR_STORE_COUNT, MSR_AREA_ENTRIES); 
+    CHECK_VMWRITE(VM_EXIT_MSR_STORE_ADDR, exit_phys_addr); 
+
+    printk(KERN_INFO "VM Exit MSR setup success!\n");
+    return 0; 
+}
+
+void cleanup_exit_msr_area(void)
+{
+    if(_vm_exit_msr_area)
+    {
+        printk(KERN_INFO "Cleaning up Exit MSR area memory...\n"); 
+        kfree(_vm_exit_msr_area); 
+        _vm_exit_msr_area = NULL;
+    }
+}
+
+int entry_msr_store_area(void)
+{
+    phys_addr_t entry_phys_addr; 
+
+    _vm_entry_msr_area  = kzalloc(sizeof(struct _msr_entry) * MSR_AREA_ENTRIES, GFP_KERNEL | GFP_DMA ); 
+
+    if(!_vm_exit_msr_area)
+    {
+        printk(KERN_INFO "Failed to allocate Entry MSR area memory region\n"); 
+        return -ENOMEM; 
+    }
+
+    _vm_entry_msr_area[0].index = 0x174; 
+    _vm_entry_msr_area[0].reserved = 0; 
+
+    entry_phys_addr = virt_to_phys(_vm_entry_msr_area); 
+     
+    CHECK_VMWRITE(VM_ENTRY_MSR_LOAD_COUNT, MSR_AREA_ENTRIES); 
+    CHECK_VMWRITE(VM_ENTRY_MSR_LOAD_ADDR, entry_phys_addr); 
+
+    printk(KERN_INFO "VM Entry MSR setup success!\n");
+
+    return 0; 
+}
+
+void cleanup_entry_msr_area(void)
+{
+    if(_vm_entry_msr_area)
+    {
+        printk(KERN_INFO "Cleaning up Entry MSR area memory\n"); 
+        kfree(_vm_entry_msr_area); 
+        _vm_entry_msr_area = NULL; 
+    }
+}
 
 /*set up vmcs execution control field */ 
 
@@ -414,6 +513,41 @@ bool init_vmcs_control_field(void)
     uint32_t exception_bitmap = 0; 
     CHECK_VMWRITE(VMCS_EXCEPTION_BITMAP, exception_bitmap);
 
+    if(set_io_bitmap() != 0)
+    {
+        printk(KERN_ERR "IO Bitmap VMCS setup failed\n"); 
+        return -1; 
+    }
+    
+    if(setup_cr_mask_and_shadows() != 0)
+    {
+        printk(KERN_ERR "CR mask and shadow VMCS setup failed\n"); 
+        return -1; 
+    }
+
+    if(set_cr3_targets() != 0)
+    {
+        printk(KERN_ERR "CR3 targets VMCS setup failed\n"); 
+        return -1; 
+    }
+
+    if(msr_bitmap_support())
+    {
+        void * msr_bitmap = setup_msr_bitmap(); 
+        if(load_msr_bitmap(msr_bitmap) != 0)
+        {
+            printk(KERN_ERR "Loading MSR bitmap VMCS setup failed\n"); 
+            return -1; 
+        }
+    }
+
+    if(exit_msr_store_area() != 0)
+    {
+        printk(KERN_ERR "VM-exit MSR VMCS setup failed\n"); 
+        return -1; 
+    }
+    
+
     printk(KERN_INFO "VMCS control fields set successfully\n");
     return 0; // Success
 
@@ -431,7 +565,7 @@ static int __init hyp_init(void)
 
     if(!get_vmx_operation())
     {
-        printk(KERN_INFO "VMX operation failed! EXITING"); 
+        printk(KERN_ERR "VMX operation failed! EXITING"); 
         return 0; 
     }
 
@@ -447,13 +581,17 @@ static int __init hyp_init(void)
 
 static void __exit hyp_exit(void)
 {
+    printk(KERN_INFO "Cleaning all resources used :\n")
+    cleanup_vmxon_region(); 
+    cleanup_vmcs_region(); 
     cleanup_io_bitmap(); 
-    printk(KERN_INFO "cleaning up I/O bitmap memory\n");
+    cleanup_msr_bitmap();
+    cleanup_exit_msr_area();
+    cleanup_entry_msr_area();
 
-    cleanup_msr_bitmap(); 
-    printk(KERN_INFO "cleaning up MSR bitmap\n");
+    printk(KERN_INFO "Resources cleanup completed!\n");
 
-    printk(KERN_INFO "Exiting hypervisor\n"); 
+    printk(KERN_INFO "Exiting hypervisor...\n"); 
 }
 
 module_init(hyp_init); 
