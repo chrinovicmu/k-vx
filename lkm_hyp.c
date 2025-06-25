@@ -22,7 +22,7 @@
 #include <asm/io.h>
 #include <asm/errno.h> 
 #include "lkm_hyp.h"
-
+#include "vmcs_state.h"
 
 
 #define CHECK_VMWRITE(field_enc, value)                                 \
@@ -33,6 +33,22 @@
             return -EIO;                                                \
         }                                                              \
     } while (0)
+
+
+#define CHECK_VMREAD(field_enc, out_var)                                   \
+    do {                                                                   \
+        uint64_t __value;                                                  \
+        if (_vmread((field_enc), &__value)) {                              \
+            printk(KERN_ERR "VMRead failed: field_encoding: 0x%lx\n",     \
+                   (unsigned long)(field_enc));                            \
+            return -EIO;                                                   \
+        }                                                                  \
+        (out_var) = __value;                                               \
+    } while (0)
+
+
+int exit_msr_store_area(void); 
+int entry_msr_load_area(void); 
 
 /*check for vmx surppot on processor 
 *check CPUID.1:ECX.VMX[bit 5] = 1 */ 
@@ -221,7 +237,100 @@ void cleanup_vmcs_region(void)
     }
 }
 
-int set_io_bitmap(void)
+
+int init_vmcs_vm_execution_controls(void)
+{
+    /* pin-based execution controls */ 
+
+    uint64_t pinbased_control_msr = __rdmsr1(MSR_IA32_VMX_PINBASED_CTLS);
+    uint32_t pin_allowed0 = (uint32_t)(pinbased_control_msr & 0xFFFFFFFF);
+    uint32_t pin_allowed1 = (uint32_t)(pinbased_control_msr >> 32);
+    uint32_t pinbased_control_desired = 0; // Specify your desired features here
+    uint32_t pinbased_control_final = (pinbased_control_desired | pin_allowed1) & (pin_allowed0 | pin_allowed1);
+
+    CHECK_VMWRITE(VMCS_PIN_BASED_EXEC_CONTROLS, pinbased_control_final);
+
+    /* primary processor-based controls */ 
+
+    uint64_t procbased_control_msr = __rdmsr1(MSR_IA32_VMX_PROCBASED_CTLS);
+    uint32_t proc_allowed0 = (uint32_t)(procbased_control_msr & 0xFFFFFFFF);
+    uint32_t proc_allowed1 = (uint32_t)(procbased_control_msr >> 32);
+    uint32_t procbased_control_desired = 0; 
+    uint32_t procbased_control_final = (procbased_control_desired | proc_allowed1) & (proc_allowed0 | proc_allowed1);
+    CHECK_VMWRITE(VMCS_PROC_BASED_EXEC_CONTROLS, procbased_control_final);
+
+    /* secondary processor-based controls */ 
+
+    uint64_t procbased_secondary_control_msr = __rdmsr1(MSR_IA32_VMX_PROCBASED_CTLS2);
+    uint32_t proc_secondary_allowed0 = (uint32_t)(procbased_secondary_control_msr & 0xFFFFFFFF);
+    uint32_t proc_secondary_allowed1 = (uint32_t)(procbased_secondary_control_msr >> 32);
+    uint32_t procbased_secondary_control_desired = 0;
+    uint32_t procbased_secondary_control_final = (procbased_secondary_control_desired | proc_secondary_allowed1) & 
+                                                 (proc_secondary_allowed0 | proc_secondary_allowed1);
+
+    CHECK_VMWRITE(VMCS_PROC_BASED_EXEC_CONTROLS, procbased_secondary_control_final);
+
+    printk(KERN_INFO "VMCS VM-execution control fields setup success\n");
+
+    return 0;;
+}
+
+
+int init_vmcs_vm_entry_exit_controls(void)
+{
+    /* vm-exit controls */
+
+    uint64_t vm_exit_control_msr = __rdmsr1(MSR_IA32_VMX_EXIT_CTLS);
+    uint32_t vm_exit_allowed0 = (uint32_t)(vm_exit_control_msr & 0xFFFFFFFF);
+    uint32_t vm_exit_allowed1 = (uint32_t)(vm_exit_control_msr >> 32);
+    uint32_t vm_exit_control_desired = 0; 
+    uint32_t vm_exit_control_final = (vm_exit_control_desired | vm_exit_allowed1) & (vm_exit_allowed0 | vm_exit_allowed1)
+    ;
+    CHECK_VMWRITE(VMCS_EXIT_CONTROLS, vm_exit_control_final);
+
+    /* vm-entry controls */ 
+
+    uint64_t vm_entry_control_msr = __rdmsr1(MSR_IA32_VMX_ENTRY_CTLS);
+    uint32_t vm_entry_allowed0 = (uint32_t)(vm_entry_control_msr & 0xFFFFFFFF);
+    uint32_t vm_entry_allowed1 = (uint32_t)(vm_entry_control_msr >> 32);
+    uint32_t vm_entry_control_desired = 0; 
+    uint32_t vm_entry_control_final = (vm_entry_control_desired | vm_entry_allowed1) & (vm_entry_allowed0 | vm_entry_allowed1);
+
+    CHECK_VMWRITE(VMCS_ENTRY_CONTROLS, vm_entry_control_final);
+
+
+    /*set vm-exit controls 
+     * VM_EXIT_HOST_ADDR_SPACE_SIZE : control bit 9 of VM_EXIT_CONTROLS, ensure hypervisor runs in long mode on exits*/ 
+
+    CHECK_VMWRITE(VMCS_EXIT_CONTROLS, __rdmsr1(MSR_IA32_VMX_EXIT_CTLS) | VM_EXIT_HOST_ADDR_SPACE_SIZE); 
+
+    /*set exit msr store area */ 
+
+    if(exit_msr_store_area() != 0)
+    {
+        printk(KERN_ERR "VM-exit MSR VMCS setup failed\n"); 
+        return -1; 
+    }
+
+    /*set vm-entry controls 
+     * VM_ENTRY_IA32E_MODE : control bit 9 of VMCS_ENTRY_CONTROLS, ensures guest runs in long mode on entry*/ 
+
+    CHECK_VMWRITE(VMCS_ENTRY_CONTROLS, __rdmsr1(MSR_IA32_VMX_ENTRY_CTLS | VM_ENTRY_IA32E_MODE)); 
+
+    /* set entry msr store area */ 
+
+    if(entry_msr_load_area() != 0)
+    {
+        printk(KERN_ERR "vm-entry MSR VMCS setup failed\n");
+        return -1; 
+    }
+    
+    printk(KERN_INFO "VMCS Exit and Entry control field setup success\n");
+
+    return 0;
+}
+
+int init_vmcs_io_bitmap(void)
 {
     phys_addr_t io_bitmap_phys; 
 
@@ -273,7 +382,7 @@ void cleanup_io_bitmap(void)
     }
 }
  
-int setup_cr_mask_and_shadows(void) 
+int init_vmcs_cr_mask_and_shadows(void) 
 {
     uint64_t real_cr0 = _read_cr0(); 
     uint64_t real_cr4 = _read_cr4(); 
@@ -314,8 +423,17 @@ int setup_cr_mask_and_shadows(void)
  *           (Unused slots should be set to 0.)
  */
 
-int set_cr3_targets(uint64_t targets[4]) 
+int init_vmcs_cr3_targets(void) 
 {
+    
+   uint64_t targets[4] = {
+
+        0x0000000000200000,
+        0x0000000000300000,
+        0x0000000000400000,
+        0x0000000000500000
+    };
+
     uint64_t fields[4] = {
 
         VMCS_CR3_TARGET_VALUE0,
@@ -357,7 +475,7 @@ void * setup_msr_bitmap(void)
 
 /*load v,cs bitmap into VMCS */ 
 
-int load_msr_bitmap(void *msr_bitmap_virt_addr)
+int init_vmcs_msr_bitmap(void *msr_bitmap_virt_addr)
 {
     uint64_t msr_bitmap_phys_addr; 
 
@@ -414,7 +532,7 @@ void cleanup_exit_msr_area(void)
     }
 }
 
-int entry_msr_store_area(void)
+int entry_msr_load_area(void)
 {
     phys_addr_t entry_phys_addr; 
 
@@ -449,104 +567,209 @@ void cleanup_entry_msr_area(void)
     }
 }
 
+int init_vmcs_host_guest_states(void)
+{
+    CHECK_VMWRITE(HOST_CR0, _read_cr0());
+    CHECK_VMWRITE(HOST_CR3, _read_cr3());
+    CHECK_VMWRITE(HOST_CR4, _read_cr4()); 
+    
+    CHECK_VMWRITE(HOST_IA32_SYSENTER_ESP, __rdmsr1(MSR_IA32_SYSENTER_ESP));
+    CHECK_VMWRITE(HOST_IA32_SYSENTER_EIP, __rdmsr1(MSR_IA32_SYSENTER_EIP));
+    CHECK_VMWRITE(HOST_IA32_SYSENTER_CS,  __rdmsr(MSR_IA32_SYSENTER_CS));
+        
+    uint64_t tmp;
+
+    CHECK_VMREAD(HOST_ES_SELECTOR, tmp);
+    CHECK_VMWRITE(GUEST_ES_SELECTOR, tmp);
+
+    CHECK_VMREAD(HOST_CS_SELECTOR, tmp);
+    CHECK_VMWRITE(GUEST_CS_SELECTOR, tmp);
+
+    CHECK_VMREAD(HOST_SS_SELECTOR, tmp);
+    CHECK_VMWRITE(GUEST_SS_SELECTOR, tmp);
+
+    CHECK_VMREAD(HOST_DS_SELECTOR, tmp);
+    CHECK_VMWRITE(GUEST_DS_SELECTOR, tmp);
+
+    CHECK_VMREAD(HOST_FS_SELECTOR, tmp);
+    CHECK_VMWRITE(GUEST_FS_SELECTOR, tmp);
+
+    CHECK_VMREAD(HOST_GS_SELECTOR, tmp);
+    CHECK_VMWRITE(GUEST_GS_SELECTOR, tmp);
+
+    CHECK_VMWRITE(GUEST_LDTR_SELECTOR, 0);
+
+    CHECK_VMREAD(HOST_TR_SELECTOR, tmp);
+    CHECK_VMWRITE(GUEST_TR_SELECTOR, tmp);
+
+    CHECK_VMWRITE(GUEST_ES_LIMIT, -1);
+    CHECK_VMWRITE(GUEST_CS_LIMIT, -1);
+    CHECK_VMWRITE(GUEST_SS_LIMIT, -1);
+    CHECK_VMWRITE(GUEST_DS_LIMIT, -1);
+    CHECK_VMWRITE(GUEST_FS_LIMIT, -1);
+    CHECK_VMWRITE(GUEST_GS_LIMIT, -1);
+    CHECK_VMWRITE(GUEST_LDTR_LIMIT, -1);
+    CHECK_VMWRITE(GUEST_TR_LIMIT, 0x67);
+    CHECK_VMWRITE(GUEST_GDTR_LIMIT, 0xffff);
+    CHECK_VMWRITE(GUEST_IDTR_LIMIT, 0xffff);
+    
+    /* AR bytes section */ 
+
+    CHECK_VMREAD(GUEST_ES_SELECTOR, tmp);
+    CHECK_VMWRITE(GUEST_ES_AR_BYTES, tmp == 0 ? 0x10000 : 0xc093);
+
+    CHECK_VMWRITE(GUEST_CS_AR_BYTES, 0xa09b);
+    CHECK_VMWRITE(GUEST_SS_AR_BYTES, 0xc093);
+
+    CHECK_VMREAD(GUEST_DS_SELECTOR, tmp);
+    CHECK_VMWRITE(GUEST_DS_AR_BYTES, tmp == 0 ? 0x10000 : 0xc093);
+
+    CHECK_VMREAD(GUEST_FS_SELECTOR, tmp);
+    CHECK_VMWRITE(GUEST_FS_AR_BYTES, tmp == 0 ? 0x10000 : 0xc093);
+
+    CHECK_VMREAD(GUEST_GS_SELECTOR, tmp);
+    CHECK_VMWRITE(GUEST_GS_AR_BYTES, tmp == 0 ? 0x10000 : 0xc093);
+
+    CHECK_VMWRITE(GUEST_LDTR_AR_BYTES, 0x10000);
+    CHECK_VMWRITE(GUEST_TR_AR_BYTES, 0x8b);
+
+    /* BASE fields */
+
+    CHECK_VMWRITE(GUEST_ES_BASE, 0);
+    CHECK_VMWRITE(GUEST_CS_BASE, 0);
+    CHECK_VMWRITE(GUEST_SS_BASE, 0);
+    CHECK_VMWRITE(GUEST_DS_BASE, 0);
+
+    CHECK_VMREAD(HOST_FS_BASE, tmp);
+    CHECK_VMWRITE(GUEST_FS_BASE, tmp);
+
+    CHECK_VMREAD(HOST_GS_BASE, tmp);
+    CHECK_VMWRITE(GUEST_GS_BASE, tmp);
+
+    CHECK_VMWRITE(GUEST_LDTR_BASE, 0);
+
+    CHECK_VMREAD(HOST_TR_BASE, tmp);
+    CHECK_VMWRITE(GUEST_TR_BASE, tmp);
+
+    CHECK_VMREAD(HOST_GDTR_BASE, tmp);
+    CHECK_VMWRITE(GUEST_GDTR_BASE, tmp);
+
+    CHECK_VMREAD(HOST_IDTR_BASE, tmp);
+    CHECK_VMWRITE(GUEST_IDTR_BASE, tmp);
+
+    /* set the required MSR */ 
+
+    CHECK_VMWRITE(GUEST_IA32_DEBUGCTL, 0);
+
+    CHECK_VMREAD(HOST_IA32_PAT, tmp);
+    CHECK_VMWRITE(GUEST_IA32_PAT, tmp);
+
+    CHECK_VMREAD(HOST_IA32_EFER, tmp);
+    CHECK_VMWRITE(GUEST_IA32_EFER, tmp);
+
+    CHECK_VMREAD(HOST_IA32_PERF_GLOBAL_CTRL, tmp);
+    CHECK_VMWRITE(GUEST_IA32_PERF_GLOBAL_CTRL, tmp);
+
+    CHECK_VMREAD(HOST_IA32_SYSENTER_CS, tmp);
+    CHECK_VMWRITE(GUEST_SYSENTER_CS, tmp);
+
+    CHECK_VMREAD(HOST_IA32_SYSENTER_ESP, tmp);
+    CHECK_VMWRITE(GUEST_SYSENTER_ESP, tmp);
+
+    CHECK_VMREAD(HOST_IA32_SYSENTER_EIP, tmp);
+    CHECK_VMWRITE(GUEST_SYSENTER_EIP, tmp);
+
+    /*set guest non-register state */ 
+
+    CHECK_VMWRITE(GUEST_ACTIVITY_STATE, 0);
+    CHECK_VMWRITE(VMCS_LINK_POINTER, -1ull);
+    CHECK_VMWRITE(VMX_PREEMPTION_TIMER_VALUE, 0);
+    CHECK_VMWRITE(GUEST_INTR_STATUS, 0);
+    CHECK_VMWRITE(GUEST_PML_INDEX, 0);
+
+    printk(KERN_INFO "VM Host Guest register state setup success\n");
+
+    return 0; 
+}
+
+int setup_guest_entry_point(void) 
+{
+    void *costum_rsp;
+    void *costum_rip; 
+
+    /*custum rsp points to top of stack 
+     * align the stack pointer to 16 bytes (required by x86-64 ABI)*/ 
+    costum_rsp = (void *)(((uintptr_t)&guest_stack[GUEST_STACK_SIZE]) & ~0xFULL);
+    costum_rip = guest_code; 
+    CHECK_VMWRITE(GUEST_RSP, (uint64_t)costum_rsp);
+    CHECK_VMWRITE(GUEST_RIP, (uint64_t)costum_rip);
+
+    return 0;
+}
+
+
 /*set up vmcs execution control field */ 
 
 bool init_vmcs_control_field(void) 
 {
-    /*setting pin based controls 
-     * proc based controls
-     * vm exit and entry controls */
 
+    if(!init_vmcs_vm_execution_controls())
+    {
+        printk(KERN_ERR "VMCS VM-exection controls field setup failed"); 
+        return -1; 
+    }
 
-      /* pin-based execution controls */ 
-
-    uint64_t pinbased_control_msr = __rdmsr1(MSR_IA32_VMX_PINBASED_CTLS);
-    uint32_t pin_allowed0 = (uint32_t)(pinbased_control_msr & 0xFFFFFFFF);
-    uint32_t pin_allowed1 = (uint32_t)(pinbased_control_msr >> 32);
-    uint32_t pinbased_control_desired = 0; // Specify your desired features here
-    uint32_t pinbased_control_final = (pinbased_control_desired | pin_allowed1) & (pin_allowed0 | pin_allowed1);
-
-    CHECK_VMWRITE(VMCS_PIN_BASED_EXEC_CONTROLS, pinbased_control_final);
-
-    /* primary processor-based controls */ 
-
-    uint64_t procbased_control_msr = __rdmsr1(MSR_IA32_VMX_PROCBASED_CTLS);
-    uint32_t proc_allowed0 = (uint32_t)(procbased_control_msr & 0xFFFFFFFF);
-    uint32_t proc_allowed1 = (uint32_t)(procbased_control_msr >> 32);
-    uint32_t procbased_control_desired = 0; 
-    uint32_t procbased_control_final = (procbased_control_desired | proc_allowed1) & (proc_allowed0 | proc_allowed1);
-    CHECK_VMWRITE(VMCS_PROC_BASED_EXEC_CONTROLS, procbased_control_final);
-
-    /* secondary processor-based controls */ 
-
-    uint64_t procbased_secondary_control_msr = __rdmsr1(MSR_IA32_VMX_PROCBASED_CTLS2);
-    uint32_t proc_secondary_allowed0 = (uint32_t)(procbased_secondary_control_msr & 0xFFFFFFFF);
-    uint32_t proc_secondary_allowed1 = (uint32_t)(procbased_secondary_control_msr >> 32);
-    uint32_t procbased_secondary_control_desired = 0;
-    uint32_t procbased_secondary_control_final = (procbased_secondary_control_desired | proc_secondary_allowed1) & 
-                                                 (proc_secondary_allowed0 | proc_secondary_allowed1);
-
-    CHECK_VMWRITE(VMCS_PROC_BASED_EXEC_CONTROLS, procbased_secondary_control_final);
-
-    /* vm-exit controls */
-
-    uint64_t vm_exit_control_msr = __rdmsr1(MSR_IA32_VMX_EXIT_CTLS);
-    uint32_t vm_exit_allowed0 = (uint32_t)(vm_exit_control_msr & 0xFFFFFFFF);
-    uint32_t vm_exit_allowed1 = (uint32_t)(vm_exit_control_msr >> 32);
-    uint32_t vm_exit_control_desired = 0; 
-    uint32_t vm_exit_control_final = (vm_exit_control_desired | vm_exit_allowed1) & (vm_exit_allowed0 | vm_exit_allowed1)
-    ;
-    CHECK_VMWRITE(VMCS_EXIT_CONTROLS, vm_exit_control_final);
-
-    /* vm-entry controls */ 
-
-    uint64_t vm_entry_control_msr = __rdmsr1(MSR_IA32_VMX_ENTRY_CTLS);
-    uint32_t vm_entry_allowed0 = (uint32_t)(vm_entry_control_msr & 0xFFFFFFFF);
-    uint32_t vm_entry_allowed1 = (uint32_t)(vm_entry_control_msr >> 32);
-    uint32_t vm_entry_control_desired = 0; 
-    uint32_t vm_entry_control_final = (vm_entry_control_desired | vm_entry_allowed1) & (vm_entry_allowed0 | vm_entry_allowed1);
-
-    CHECK_VMWRITE(VMCS_ENTRY_CONTROLS, vm_entry_control_final);
+    if(!init_vmcs_vm_entry_exit_controls())
+    {
+        printk(KERN_ERR "VMCS VM-Exit VM-Entry controls field setup failed\n");
+        return -1; 
+    }
 
     /*set exception bitmap to 0 to ignore vmexit for any guest exception */ 
 
     uint32_t exception_bitmap = 0; 
     CHECK_VMWRITE(VMCS_EXCEPTION_BITMAP, exception_bitmap);
 
-    if(set_io_bitmap() != 0)
+    if(init_vmcs_io_bitmap() != 0)
     {
-        printk(KERN_ERR "IO Bitmap VMCS setup failed\n"); 
+        printk(KERN_ERR "VMCS I/O Bitmap setup failed\n"); 
         return -1; 
     }
     
-    if(setup_cr_mask_and_shadows() != 0)
+    if(init_vmcs_cr_mask_and_shadows() != 0)
     {
-        printk(KERN_ERR "CR mask and shadow VMCS setup failed\n"); 
+        printk(KERN_ERR "VMCS CR mask and shadow setup failed\n"); 
         return -1; 
     }
 
-    if(set_cr3_targets() != 0)
+    if(init_vmcs_cr3_targets() != 0)
     {
-        printk(KERN_ERR "CR3 targets VMCS setup failed\n"); 
+        printk(KERN_ERR "VMCS CR3 targets setup failed\n"); 
         return -1; 
     }
 
     if(msr_bitmap_support())
     {
         void * msr_bitmap = setup_msr_bitmap(); 
-        if(load_msr_bitmap(msr_bitmap) != 0)
+        if(init_vmcs_msr_bitmap(msr_bitmap) != 0)
         {
-            printk(KERN_ERR "Loading MSR bitmap VMCS setup failed\n"); 
+            printk(KERN_ERR "VMCS MSR bitmap setup failed\n"); 
             return -1; 
         }
     }
 
-    if(exit_msr_store_area() != 0)
+    if(init_vmcs_host_guest_states() != 0)
     {
-        printk(KERN_ERR "VM-exit MSR VMCS setup failed\n"); 
+        printk(KERN_ERR "VMCS Host Guest states fields setup failed\n"); 
         return -1; 
     }
-    
+
+    if(setup_guest_entry_point())
+    {
+        printk(KERN_ERR "VMCS guest entry point setup failed\n"); 
+        return -1; 
+    }
+
 
     printk(KERN_INFO "VMCS control fields set successfully\n");
     return 0; // Success
@@ -581,7 +804,7 @@ static int __init hyp_init(void)
 
 static void __exit hyp_exit(void)
 {
-    printk(KERN_INFO "Cleaning all resources used :\n")
+    printk(KERN_INFO "Cleaning all resources used :\n");
     cleanup_vmxon_region(); 
     cleanup_vmcs_region(); 
     cleanup_io_bitmap(); 

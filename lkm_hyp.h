@@ -42,7 +42,8 @@
 #define VMCS_PROC_BASED_EXEC_CONTROLS       0x00004002 
 #define VMCS_EXIT_CONTROLS                  0x0000400c 
 #define VMCS_ENTRY_CONTROLS                 0x00004012 
-
+#define VM_EXIT_HOST_ADDR_SPACE_SIZE        0x00000200 
+#define VM_ENTRY_IA32E_MODE                 0x00000200 
 #define VMCS_INSTRUCTION_ERROR_FIELD        0x00004400 
 
 #define VMCS_EXCEPTION_BITMAP               0x00004004
