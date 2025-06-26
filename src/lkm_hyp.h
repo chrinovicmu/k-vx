@@ -3,6 +3,7 @@
 #define LKM_HYP_H
 
 #include <linux/const.h>
+#include "vmcs_state.h"
 
 #define X86_CR4_VMXE_BIT    13 
 #define X86_CR4_VMXE        _BITUL(X86_CR4_VMXE_BIT)
@@ -260,6 +261,37 @@ static inline int _vmwrite(uint64_t field_enc, uint64_t value)
     }
 }
 
+static inline int _vmlaunch(void)
+{
+    int ret;
+
+    __asm__ __volatile__ (
+        "push %%rbp;"
+        "push %%rcx;"
+        "push %%rdx;"
+        "push %%rsi;"
+        "push %%rdi;"
+        "push $0;"
+        "vmwrite %%rsp, %[host_rsp];"
+        "lea 1f(%%rip), %%rax;"
+        "vmwrite %%rax, %[host_rip];"
+        "vmlaunch;"
+        "incq (%%rsp);"
+        "1: pop %%rax;"
+        "pop %%rdi;"
+        "pop %%rsi;"
+        "pop %%rdx;"
+        "pop %%rcx;"
+        "pop %%rbp;"
+        : [ret] "=&a"(ret)
+        : [host_rsp] "r"((uint64_t)HOST_RSP),
+        [host_rip] "r"((uint64_t)HOST_RIP)
+        : "memory", "cc", "rbx", "r8", "r9", "r10", 
+        "r11", "r12", "r14", "r15"
+    );
+
+    return ret; 
+}
 
 struct _msr_entry 
 {

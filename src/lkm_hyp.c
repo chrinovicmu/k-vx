@@ -23,7 +23,7 @@
 #include <asm/errno.h> 
 #include "lkm_hyp.h"
 #include "vmcs_state.h"
-
+#include "exit_code.h"
 
 #define CHECK_VMWRITE(field_enc, value)                                 \
     do {                                                               \
@@ -46,6 +46,8 @@
         (out_var) = __value;                                               \
     } while (0)
 
+
+static uint64_t vmxon_phy_addr = 0; 
 
 int exit_msr_store_area(void); 
 int entry_msr_load_area(void); 
@@ -77,7 +79,7 @@ bool msr_bitmap_support(void)
     return (allowed_1_settings & (1 << VMCS_MSR_BITMAPS_BIT)) != 0;
 }
 
-bool get_vmx_operation(void)
+int get_vmx_operation(void)
 {
     /*set bit 13 of CR4 to enbale VMX virtualization on CPU */ 
     
@@ -109,14 +111,17 @@ bool get_vmx_operation(void)
 
     feature_control = __rdmsr1(MSR_IA32_FEATURE_CONTROL);
 
-    printk(KERN_INFO "RDMSR output id %ld", (long)feature_control);
+    printk(KERN_INFO "MSR_IA32_FEATURE_CONTROL 0x%llx\n", feature_control);
     
     if((feature_control & required) != required)
     {
         /*bit 0-31(low): 0s *
-        * bit 32-63(high): modified feature value */  
+       * bit 32-63(high): modified feature value */  
 
-        wrmsr(MSR_IA32_FEATURE_CONTROL, feature_control | required, low1);
+        uint32_t low = (uint32_t)((feature_control | required) & 0xFFFFFFFF);
+        uint32_t high = (uint32_t)(((feature_control | required) >> 32) & 0xFFFFFFFF);
+
+        wrmsr(MSR_IA32_FEATURE_CONTROL, low, high);
     }
 
     /*ensure bits in cr0 and cr4 are valid for VMX operation*/
@@ -158,33 +163,43 @@ bool get_vmx_operation(void)
         :"memory"
      );
 
-    phys_addr_t vmxon_phy_region = 0; 
-
     /*allocate 4kb memory for vmxon region */  
 
     vmxon_region = kzalloc(VMXON_REGION_PAGE_SIZE, GFP_KERNEL); 
-    
+
     if(!vmxon_region)
     {
         printk(KERN_ERR "Failed to allocate VMXON Region\n"); 
-        return false; 
+        return -1; 
+    }
+
+    if (((uint64_t)vmxon_region & 0xFFF) != 0) 
+    {
+        printk(KERN_WARNING "VMXON region is NOT 4KB aligned! This may cause VMXON to fail.\n");
+    }else 
+    {
+        printk(KERN_INFO "VMXON region is 4KB aligned.\n");
     }
 
     /*convert virtual address to physical address */ 
 
-    vmxon_phy_region = virt_to_phys(vmxon_region);
+    vmxon_phy_addr = virt_to_phys(vmxon_region);
 
     /*write rivison id to first 32bit(4bytes) of vmxon region memory */ 
- 
-    *(uint32_t *)vmxon_region = _vmcs_revision_id(); 
 
-    if(_vmxon((uint64_t)vmxon_phy_region))
+    uint32_t rev_id = _vmcs_revision_id();
+    printk(KERN_INFO "VMCS Revision ID : 0x%x\n", rev_id); 
+
+    *(uint32_t *)vmxon_region = rev_id; 
+
+    if(!_vmxon((uint64_t)vmxon_phy_addr))
     {
-        return false; 
+        return -1;  
     }
 
     printk(KERN_INFO "VMXON Region setup success\n");
-    return true;
+
+    return 0; 
 }
 
 void cleanup_vmxon_region(void)
@@ -197,7 +212,7 @@ void cleanup_vmxon_region(void)
     }
 }
 
-bool vmcs_set(void)
+int vmcs_set(void)
 {
     phys_addr_t vmcs_phy_region = 0; 
 
@@ -208,7 +223,7 @@ bool vmcs_set(void)
     if(!vmcs_region)
     {
         printk(KERN_ERR "Failed to allocate VMCS Region\n"); 
-        return false; 
+        return -1; 
     }
     
     vmcs_phy_region = virt_to_phys(vmcs_region); 
@@ -219,11 +234,12 @@ bool vmcs_set(void)
 
     if(!_vmptrld((uint64_t)vmcs_phy_region))
     {
-        return false;  
+        return -1;  
     }
 
     printk(KERN_INFO "VMCS Region setup success\n");
-    return true; 
+
+    return 0; 
 
 }
 
@@ -776,45 +792,105 @@ bool init_vmcs_control_field(void)
 
 }
 
-static int __init hyp_init(void)
+uint32_t vmexit_res(void)
 {
-    if(!vmx_support())
+    uint32_t exit_reason; 
+
+    CHECK_VMREAD(VM_EXIT_REASON,exit_reason);
+    exit_reason = exit_reason & 0xffff;
+
+    return exit_reason; 
+}
+
+int init_vmlaunch(void)
+{
+    int vmlaunch_status = _vmlaunch(); 
+
+    if(vmlaunch_status != 0)
     {
-        printk(KERN_INFO "VMX not surpported! EXITING"); 
-        return 0; 
+        printk(KERN_ERR "VM launch failed with error code : 0x%x\n", vmlaunch_status);
+        return -1; 
     }
 
-    printk(KERN_INFO "VMX is surpported! CONTINUING"); 
+    printk(KERN_ERR "VM exit reason is %lu!\n", (unsigned long)vmexit_res());
 
-    if(!get_vmx_operation())
-    {
-        printk(KERN_ERR "VMX operation failed! EXITING"); 
-        return 0; 
-    }
+    return 0; 
+}
 
-    printk(KERN_INFO "VMX operation succeeded! CONTINUING"); 
-
+int vmx_off(void)
+{
     __asm__ __volatile__ (
         "vmxoff\n"
-        : : 
-        :"cc"
-    ); 
+        : 
+        : 
+        : "cc"  
+    );
+
     return 0; 
+}
+
+
+static int __init hyp_init(void)
+{
+    if(!vmx_support()) 
+    {
+        printk(KERN_INFO "VMX support not present\n");
+        return -EOPNOTSUPP;
+    }
+    printk(KERN_INFO "VMX support present! continuing...\n");
+
+    if (get_vmx_operation() != 0)
+    {
+        printk(KERN_ERR "VMX operation failed! exiting...\n");
+        return -EIO;
+    }
+
+    if (vmcs_set() != 0)
+    {
+        printk(KERN_ERR "VMCS Region allocation failed! exiting...\n");
+        cleanup_vmxon_region();
+        return -ENOMEM;
+    }
+
+    if (init_vmcs_control_field() != 0) 
+    {
+        printk(KERN_ERR "VMCS control field initialization failed! exiting...\n");
+        cleanup_vmcs_region();
+        cleanup_vmxon_region();
+        return -EINVAL;
+    }
+
+    if (init_vmlaunch() != 0) 
+    {
+        printk(KERN_ERR "VMLAUNCH failed! exiting...\n");
+        cleanup_vmcs_region();
+        cleanup_vmxon_region();
+        return -EIO;
+    }
+
+    if (vmx_off() != 0)
+    {
+        printk(KERN_ERR "VMXOFF operation failed! exiting...\n");
+        return -EIO;
+    }
+
+    printk(KERN_INFO "VMXOFF operation succeeded! continuing...\n");
+    return 0;
 }
 
 static void __exit hyp_exit(void)
 {
-    printk(KERN_INFO "Cleaning all resources used :\n");
-    cleanup_vmxon_region(); 
-    cleanup_vmcs_region(); 
-    cleanup_io_bitmap(); 
+    printk(KERN_INFO "Cleaning all resources used:\n");
+
+    cleanup_vmxon_region();
+    cleanup_vmcs_region();
+    cleanup_io_bitmap();
     cleanup_msr_bitmap();
     cleanup_exit_msr_area();
     cleanup_entry_msr_area();
 
     printk(KERN_INFO "Resources cleanup completed!\n");
-
-    printk(KERN_INFO "Exiting hypervisor...\n"); 
+    printk(KERN_INFO "Exiting hypervisor...\n");
 }
 
 module_init(hyp_init); 
