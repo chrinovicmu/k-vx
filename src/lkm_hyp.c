@@ -69,6 +69,21 @@ bool vmx_support(void)
     return (ecx & (1 << 5)) != 0;  
 }
 
+
+static inline void enable_vmx_operation(void)
+{
+    uint64_t cr4;
+
+    __asm__ volatile (
+        "mov %%cr4, %0\n\t"
+        "or %1, %0\n\t"
+        "mov %0, %%cr4\n\t"
+        : "=&r"(cr4)
+        : "i"(1UL << 13)
+        : "memory"
+    );
+}
+
 /*check if processor supports MSR bitmap  */ 
 
 bool msr_bitmap_support(void)
@@ -81,133 +96,198 @@ bool msr_bitmap_support(void)
 
 int get_vmx_operation(void)
 {
-    /*set bit 13 of CR4 to enbale VMX virtualization on CPU */ 
-    
-    unsigned long cr4; 
+    unsigned long cr4;
+    unsigned long cr0;
 
-    __asm__ __volatile__(
+    uint64_t feature_control;
+    uint64_t required;
+
+    uint64_t vmx_cr0_fixed0;  
+    uint64_t vmx_cr0_fixed1;
+    uint64_t vmx_cr4_fixed0; 
+    uint64_t vmx_cr4_fixed1; 
+    
+    /* enable VMX in CR4 (set bit 13) */
+
+    asm volatile(
         "mov %%cr4, %0"
         : "=r" (cr4)
-        : : "memory" 
+        : 
+        : "memory" 
     );
-
-    cr4 |= X86_CR4_VMXE; 
-
-    __asm__ __volatile__(
+    
+    printk(KERN_INFO "Current CR4: 0x%lx\n", cr4);
+    cr4 |= X86_CR4_VMXE;  /* Set VMX enable bit (bit 13) */
+    printk(KERN_INFO "Setting CR4 to: 0x%lx\n", cr4);
+    
+    asm volatile(
         "mov %0, %%cr4"
         :
-        :"r"(cr4)
+        : "r"(cr4)
         : "memory"
-    ); 
-
-    /*configure MSR_IA32_FEATURE_CONTROL MSR to allow vmxon*/
-
-    uint64_t feature_control; 
-    uint64_t required; 
-    u32 low1 = 0; 
-
-    required = IA32_FEATURE_CONTROL_LOCKED; 
-    required |= IA32_FEATURE_CONTROL_MSR_VMXON_ENABLE_OUTSIDE_SMX; 
-
-    feature_control = __rdmsr1(MSR_IA32_FEATURE_CONTROL);
-
-    printk(KERN_INFO "MSR_IA32_FEATURE_CONTROL 0x%llx\n", feature_control);
+    );
     
-    if((feature_control & required) != required)
+    /*configure MSR_IA32_FEATURE_CONTROL MSR to allow VMXON */
+
+    required = IA32_FEATURE_CONTROL_LOCKED;
+    required |= IA32_FEATURE_CONTROL_MSR_VMXON_ENABLE_OUTSIDE_SMX;
+    
+    feature_control = __rdmsr1(MSR_IA32_FEATURE_CONTROL);
+    printk(KERN_INFO "Current MSR_IA32_FEATURE_CONTROL: 0x%llx\n", feature_control);
+    printk(KERN_INFO "Required bits: 0x%llx\n", required);
+    
+    /* check if the MSR is already locked with wrong settings */
+
+    if ((feature_control & IA32_FEATURE_CONTROL_LOCKED) && ((feature_control & required) != required))
     {
-        /*bit 0-31(low): 0s *
-       * bit 32-63(high): modified feature value */  
-
-        uint32_t low = (uint32_t)((feature_control | required) & 0xFFFFFFFF);
-        uint32_t high = (uint32_t)(((feature_control | required) >> 32) & 0xFFFFFFFF);
-
-        wrmsr(MSR_IA32_FEATURE_CONTROL, low, high);
+        printk(KERN_ERR "Feature Control MSR is locked with incompatible settings!\n");
+        printk(KERN_ERR "Current: 0x%llx, Required: 0x%llx\n", feature_control, required);
+        return -1;
     }
+    
+    /* set the required bits if not already set */
 
-    /*ensure bits in cr0 and cr4 are valid for VMX operation*/
+    if ((feature_control & required) != required) 
+    {   
+        uint64_t new_feature_control = feature_control | required;
+        uint32_t low = (uint32_t)(new_feature_control & 0xFFFFFFFF);
+        uint32_t high = (uint32_t)((new_feature_control >> 32) & 0xFFFFFFFF);
+        
+        printk(KERN_INFO "Writing MSR_IA32_FEATURE_CONTROL: 0x%llx\n", new_feature_control);
+        wrmsr(MSR_IA32_FEATURE_CONTROL, low, high);
+        
+        /* Verify the write succeeded */
 
-    cr4 = 0; 
-    unsigned long cr0;  
-
-    __asm__ __volatile__ (
+        feature_control = __rdmsr1(MSR_IA32_FEATURE_CONTROL);
+        printk(KERN_INFO "MSR after write: 0x%llx\n", feature_control);
+        
+        if ((feature_control & required) != required) 
+        {
+            printk(KERN_ERR "Failed to set required bits in Feature Control MSR\n");
+            return -1;
+        }
+    }
+    
+    vmx_cr0_fixed0 = __rdmsr1(MSR_IA32_VMX_CR0_FIXED0);  
+    vmx_cr0_fixed1 = __rdmsr1(MSR_IA32_VMX_CR0_FIXED1);  
+    vmx_cr4_fixed0 = __rdmsr1(MSR_IA32_VMX_CR4_FIXED0);  
+    vmx_cr4_fixed1 = __rdmsr1(MSR_IA32_VMX_CR4_FIXED1);  
+    
+    printk(KERN_INFO "VMX_CR0_FIXED0: 0x%llx (must be 1)\n", vmx_cr0_fixed0);
+    printk(KERN_INFO "VMX_CR0_FIXED1: 0x%llx (must be 0 inverted)\n", vmx_cr0_fixed1);
+    printk(KERN_INFO "VMX_CR4_FIXED0: 0x%llx (must be 1)\n", vmx_cr4_fixed0);
+    printk(KERN_INFO "VMX_CR4_FIXED1: 0x%llx (must be 0 inverted)\n", vmx_cr4_fixed1);
+    
+    asm volatile (
         "mov %%cr0, %0"
         : "=r" (cr0)
         :
         : "memory"
     );
-    cr0 &=  __rdmsr1(MSR_IA32_VMX_CR0_FIXED1); /*mask all allowd bits to 1 */
-    cr0 |=  __rdmsr1(MSR_IA32_VMX_CR0_FIXED0); /*set all allowd bits */
-
-    __asm__ __volatile__ (
+    
+    printk(KERN_INFO "Current CR0: 0x%lx\n", cr0);
+    
+    cr0 |= vmx_cr0_fixed0;   
+    cr0 &= vmx_cr0_fixed1;  
+    
+    printk(KERN_INFO "Setting CR0 to: 0x%lx\n", cr0);
+    
+    asm volatile (
         "mov %0, %%cr0"
         : 
-        :"r" (cr0) 
-        :"memory"
-    ); 
-
-    __asm__ __volatile__ (
-
+        : "r" (cr0) 
+        : "memory"
+    );
+    
+    asm volatile (
         "mov %%cr4, %0"
-        :"=r" (cr4)
+        : "=r" (cr4)
         :
-        :"memory"
-        ); 
-
-    cr4 &= __rdmsr1(MSR_IA32_VMX_CR4_FIXED1); 
-    cr4 |= __rdmsr1(MSR_IA32_VMX_CR4_FIXED0); 
-
-    __asm__ __volatile__ (
+        : "memory"
+    );
+    
+    printk(KERN_INFO "Current CR4 before VMX fixed adjustment: 0x%lx\n", cr4);
+    
+    cr4 |= vmx_cr4_fixed0;   
+    cr4 &= vmx_cr4_fixed1;   
+    
+    cr4 |= X86_CR4_VMXE;
+    
+    printk(KERN_INFO "Setting final CR4 to: 0x%lx\n", cr4);
+    
+    asm volatile (
         "mov %0, %%cr4"
         :
-        :"r"(cr4)
-        :"memory"
-     );
+        : "r"(cr4)
+        : "memory"
+    );
+    
+    vmxon_region = (void*) __get_free_pages(GFP_KERNEL, 0);
 
-    /*allocate 4kb memory for vmxon region */  
-
-    vmxon_region = kzalloc(VMXON_REGION_PAGE_SIZE, GFP_KERNEL); 
-
-    if(!vmxon_region)
-    {
-        printk(KERN_ERR "Failed to allocate VMXON Region\n"); 
-        return -1; 
+    if (!vmxon_region) {
+        printk(KERN_ERR "Failed to allocate VMXON Region\n");
+        return -1;
     }
+    
+    memset(vmxon_region, 0, VMXON_REGION_PAGE_SIZE);
+    
+    /* verify 4KB alignment - VMXON requires physical address to be 4KB aligned */
 
     if (((uint64_t)vmxon_region & 0xFFF) != 0) 
     {
-        printk(KERN_WARNING "VMXON region is NOT 4KB aligned! This may cause VMXON to fail.\n");
-    }else 
-    {
-        printk(KERN_INFO "VMXON region is 4KB aligned.\n");
+        printk(KERN_ERR "VMXON region is NOT 4KB aligned! Address: %p\n", vmxon_region);
+        free_pages((unsigned long)vmxon_region, 0);
+        return -1;
     }
-
-    /*convert virtual address to physical address */ 
-
+    
+    printk(KERN_INFO "VMXON region allocated at: %p (4KB aligned)\n", vmxon_region);
+    
     vmxon_phy_addr = virt_to_phys(vmxon_region);
-
-    /*write rivison id to first 32bit(4bytes) of vmxon region memory */ 
-
+    printk(KERN_INFO "VMXON physical address: 0x%llx\n", vmxon_phy_addr);
+    
     uint32_t rev_id = _vmcs_revision_id();
-    printk(KERN_INFO "VMCS Revision ID : 0x%x\n", rev_id); 
-
-    *(uint32_t *)vmxon_region = rev_id; 
-
-    if(!_vmxon((uint64_t)vmxon_phy_addr))
+    printk(KERN_INFO "VMCS Revision ID: 0x%x\n", rev_id);
+    *(uint32_t *)vmxon_region = rev_id;
+    
+    printk(KERN_INFO "Attempting VMXON with physical address: 0x%llx\n", vmxon_phy_addr);
+    
+    if (_vmxon((uint64_t)vmxon_phy_addr) != 0)
     {
-        return -1;  
+        printk(KERN_ERR "VMXON instruction failed\n");
+        
+        unsigned long current_cr0, current_cr4;
+
+        __asm__ __volatile__ (
+            "mov %%cr0, %0" 
+            : "=r"(current_cr0)
+        );
+
+        __asm__ __volatile__ (
+            "mov %%cr4, %0" 
+            : "=r"(current_cr4)
+        );
+        
+        printk(KERN_ERR "Debug - Current CR0: 0x%lx, CR4: 0x%lx\n", current_cr0, current_cr4);
+        printk(KERN_ERR "Debug - VMX enabled in CR4: %s\n", 
+               (current_cr4 & X86_CR4_VMXE) ? "YES" : "NO");
+        
+        free_pages((unsigned long)vmxon_region, 0);
+        return -1;
     }
+    
+    printk(KERN_INFO "VMXON Region setup success - VMX operation enabled\n");
 
-    printk(KERN_INFO "VMXON Region setup success\n");
-
-    return 0; 
+    return 0;
 }
+
+
 
 void cleanup_vmxon_region(void)
 {
     if(vmxon_region)
     {
         printk(KERN_INFO "Cleaning up VMXON Region...\n"); 
-        kfree(vmxon_region); 
+        free_pages((unsigned long)vmxon_region, 0); 
         vmxon_region = NULL; 
     }
 }
@@ -232,7 +312,7 @@ int vmcs_set(void)
 
     *(uint32_t *) vmcs_region = _vmcs_revision_id();
 
-    if(!_vmptrld((uint64_t)vmcs_phy_region))
+    if(_vmptrld((uint64_t)vmcs_phy_region) != 0)
     {
         return -1;  
     }
@@ -288,7 +368,7 @@ int init_vmcs_vm_execution_controls(void)
 
     printk(KERN_INFO "VMCS VM-execution control fields setup success\n");
 
-    return 0;;
+    return 0;
 }
 
 
@@ -300,8 +380,7 @@ int init_vmcs_vm_entry_exit_controls(void)
     uint32_t vm_exit_allowed0 = (uint32_t)(vm_exit_control_msr & 0xFFFFFFFF);
     uint32_t vm_exit_allowed1 = (uint32_t)(vm_exit_control_msr >> 32);
     uint32_t vm_exit_control_desired = 0; 
-    uint32_t vm_exit_control_final = (vm_exit_control_desired | vm_exit_allowed1) & (vm_exit_allowed0 | vm_exit_allowed1)
-    ;
+    uint32_t vm_exit_control_final = (vm_exit_control_desired | vm_exit_allowed1) & (vm_exit_allowed0 | vm_exit_allowed1);
     CHECK_VMWRITE(VMCS_EXIT_CONTROLS, vm_exit_control_final);
 
     /* vm-entry controls */ 
@@ -838,6 +917,8 @@ static int __init hyp_init(void)
         return -EOPNOTSUPP;
     }
     printk(KERN_INFO "VMX support present! continuing...\n");
+
+    enable_vmx_operation();
 
     if (get_vmx_operation() != 0)
     {
