@@ -251,7 +251,7 @@ int get_vmx_operation(void)
     
     printk(KERN_INFO "Attempting VMXON with physical address: 0x%llx\n", vmxon_phy_addr);
     
-    if (_vmxon((uint64_t)vmxon_phy_addr) != 0)
+    if (_vmxon((uint64_t)vmxon_region) != 0)
     {
         printk(KERN_ERR "VMXON instruction failed\n");
         
@@ -972,6 +972,8 @@ static void __exit hyp_exit(void)
 
     printk(KERN_INFO "Resources cleanup completed!\n");
     printk(KERN_INFO "Exiting hypervisor...\n");
+
+    asm volatile("vmxoff");
 }
 
 module_init(hyp_init); 
@@ -981,3 +983,4 @@ MODULE_LICENSE("Dual BSD/GPL");
 MODULE_AUTHOR("Chrinovic M");
 MODULE_DESCRIPTION("Lightweight Hypervisior ");
     
+
