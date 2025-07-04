@@ -24,28 +24,7 @@
 #include "lkm_hyp.h"
 #include "vmcs_state.h"
 #include "exit_code.h"
-
-#define CHECK_VMWRITE(field_enc, value)                                 \
-    do {                                                               \
-        if (_vmwrite((field_enc), (value))) {                           \
-            printk(KERN_ERR "VMWrite failed: field_encoding: 0x%lx\n", \
-                   (unsigned long)(field_enc));                         \
-            return -EIO;                                                \
-        }                                                              \
-    } while (0)
-
-
-#define CHECK_VMREAD(field_enc, out_var)                                   \
-    do {                                                                   \
-        uint64_t __value;                                                  \
-        if (_vmread((field_enc), &__value)) {                              \
-            printk(KERN_ERR "VMRead failed: field_encoding: 0x%lx\n",     \
-                   (unsigned long)(field_enc));                            \
-            return -EIO;                                                   \
-        }                                                                  \
-        (out_var) = __value;                                               \
-    } while (0)
-
+#include "macro.h"
 
 static uint64_t vmxon_phy_addr = 0; 
 
@@ -116,7 +95,7 @@ int get_vmx_operation(void)
         : "memory" 
     );
     
-    printk(KERN_INFO "Current CR4: 0x%lx\n", cr4);
+    PDEBUG("Current CR4: 0x%lx\n", cr4);
     cr4 |= X86_CR4_VMXE;  /* Set VMX enable bit (bit 13) */
     printk(KERN_INFO "Setting CR4 to: 0x%lx\n", cr4);
     
@@ -133,8 +112,8 @@ int get_vmx_operation(void)
     required |= IA32_FEATURE_CONTROL_MSR_VMXON_ENABLE_OUTSIDE_SMX;
     
     feature_control = __rdmsr1(MSR_IA32_FEATURE_CONTROL);
-    printk(KERN_INFO "Current MSR_IA32_FEATURE_CONTROL: 0x%llx\n", feature_control);
-    printk(KERN_INFO "Required bits: 0x%llx\n", required);
+    PDEBUG("Current MSR_IA32_FEATURE_CONTROL: 0x%llx\n", feature_control);
+    PDEBUG("Required bits: 0x%llx\n", required);
     
     /* check if the MSR is already locked with wrong settings */
 
@@ -159,7 +138,7 @@ int get_vmx_operation(void)
         /* Verify the write succeeded */
 
         feature_control = __rdmsr1(MSR_IA32_FEATURE_CONTROL);
-        printk(KERN_INFO "MSR after write: 0x%llx\n", feature_control);
+        PDEBUG("MSR after write: 0x%llx\n", feature_control);
         
         if ((feature_control & required) != required) 
         {
@@ -173,10 +152,10 @@ int get_vmx_operation(void)
     vmx_cr4_fixed0 = __rdmsr1(MSR_IA32_VMX_CR4_FIXED0);  
     vmx_cr4_fixed1 = __rdmsr1(MSR_IA32_VMX_CR4_FIXED1);  
     
-    printk(KERN_INFO "VMX_CR0_FIXED0: 0x%llx (must be 1)\n", vmx_cr0_fixed0);
-    printk(KERN_INFO "VMX_CR0_FIXED1: 0x%llx (must be 0 inverted)\n", vmx_cr0_fixed1);
-    printk(KERN_INFO "VMX_CR4_FIXED0: 0x%llx (must be 1)\n", vmx_cr4_fixed0);
-    printk(KERN_INFO "VMX_CR4_FIXED1: 0x%llx (must be 0 inverted)\n", vmx_cr4_fixed1);
+    PDEBUG("VMX_CR0_FIXED0: 0x%llx (must be 1)\n", vmx_cr0_fixed0);
+    PDEBUG("VMX_CR0_FIXED1: 0x%llx (must be 0 inverted)\n", vmx_cr0_fixed1);
+    PDEBUG("VMX_CR4_FIXED0: 0x%llx (must be 1)\n", vmx_cr4_fixed0);
+    PDEBUG("VMX_CR4_FIXED1: 0x%llx (must be 0 inverted)\n", vmx_cr4_fixed1);
     
     asm volatile (
         "mov %%cr0, %0"
@@ -185,12 +164,12 @@ int get_vmx_operation(void)
         : "memory"
     );
     
-    printk(KERN_INFO "Current CR0: 0x%lx\n", cr0);
+    PDEBUG("Current CR0: 0x%lx\n", cr0);
     
     cr0 |= vmx_cr0_fixed0;   
     cr0 &= vmx_cr0_fixed1;  
     
-    printk(KERN_INFO "Setting CR0 to: 0x%lx\n", cr0);
+    PDEBUG("Setting CR0 to: 0x%lx\n", cr0);
     
     asm volatile (
         "mov %0, %%cr0"
@@ -206,14 +185,14 @@ int get_vmx_operation(void)
         : "memory"
     );
     
-    printk(KERN_INFO "Current CR4 before VMX fixed adjustment: 0x%lx\n", cr4);
+    PDEBUG("Current CR4 before VMX fixed adjustment: 0x%lx\n", cr4);
     
     cr4 |= vmx_cr4_fixed0;   
     cr4 &= vmx_cr4_fixed1;   
     
     cr4 |= X86_CR4_VMXE;
     
-    printk(KERN_INFO "Setting final CR4 to: 0x%lx\n", cr4);
+    PDEBUG("Setting final CR4 to: 0x%lx\n", cr4);
     
     asm volatile (
         "mov %0, %%cr4"
