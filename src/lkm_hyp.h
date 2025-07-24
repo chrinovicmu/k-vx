@@ -3,6 +3,7 @@
 #define LKM_HYP_H
 
 #include <linux/const.h>
+#include "linux/kern_levels.h"
 #include "vmcs_state.h"
 
 #define X86_CR4_VMXE_BIT    13 
@@ -293,6 +294,21 @@ static inline int _vmlaunch(void)
     return ret; 
 }
 
+static inline int _get_vmcs_size(void)
+{
+    uint64_t vmx_basic = __rdmsr1(MSR_IA32_VMX_BASIC); 
+    uint32_t vmcs_size = (vmx_basic > 32) & 0x1FFF; 
+
+    if(!vmcs_size)
+    {
+        printk(KERN_ERR "Invalid VMCS size from VMX_BASIC MSR: 0x%ll\n", vmx_basic); 
+        return -1; 
+
+    }
+
+    printk(KERN_INFO "VMX_BASIC MSR: 0x%llx, VMCS size: %u bytes\n", vmx_basic, vmcs_size);
+    return vmcs_size;
+}
 struct _msr_entry 
 {
     uint32_t index; 

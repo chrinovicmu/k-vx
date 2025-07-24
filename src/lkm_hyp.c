@@ -22,6 +22,8 @@
 #include <asm/io.h>
 #include <asm/errno.h> 
 #include "lkm_hyp.h"
+#include "asm/page_types.h"
+#include "linux/gfp_types.h"
 #include "vmcs_state.h"
 #include "exit_code.h"
 #include "macro.h"
@@ -200,8 +202,18 @@ int get_vmx_operation(void)
         : "r"(cr4)
         : "memory"
     );
+
+    uint32_t vmcs_size; 
+    size_t alloc_size; 
+
+    vmcs_size = _get_vmcs_size(); 
+    if(!vmcs_size)
+    {
+        return -EFAULT; 
+    }
     
-    vmxon_region = (void*) __get_free_pages(GFP_KERNEL, 0);
+    alloc_size = (vmcs_size <= PAGE_SIZE) ? PAGE_SIZE : vmcs_size; 
+    vmxon_region = kmalloc(alloc_size, GFP_KERNEL | __GFP_ZERO); 
 
     if (!vmxon_region) {
         printk(KERN_ERR "Failed to allocate VMXON Region\n");
@@ -215,7 +227,7 @@ int get_vmx_operation(void)
     if (((uint64_t)vmxon_region & 0xFFF) != 0) 
     {
         printk(KERN_ERR "VMXON region is NOT 4KB aligned! Address: %p\n", vmxon_region);
-        free_pages((unsigned long)vmxon_region, 0);
+        kfree(vmxon_region); 
         return -1;
     }
     
@@ -250,8 +262,8 @@ int get_vmx_operation(void)
         printk(KERN_ERR "Debug - VMX enabled in CR4: %s\n", 
                (current_cr4 & X86_CR4_VMXE) ? "YES" : "NO");
         
-        free_pages((unsigned long)vmxon_region, 0);
-        return -1;
+        kfree(vmxon_region); 
+        return -EINVAL;
     }
     
     printk(KERN_INFO "VMXON Region setup success - VMX operation enabled\n");
@@ -266,18 +278,30 @@ void cleanup_vmxon_region(void)
     if(vmxon_region)
     {
         printk(KERN_INFO "Cleaning up VMXON Region...\n"); 
-        free_pages((unsigned long)vmxon_region, 0); 
+        kfree(vmxon_region); 
         vmxon_region = NULL; 
     }
 }
 
 int vmcs_set(void)
 {
-    phys_addr_t vmcs_phy_region = 0; 
+    phys_addr_t vmcs_phy_region = 0;
+
+
+    uint32_t vmcs_size; 
+    size_t alloc_size; 
+
+    vmcs_size = _get_vmcs_size(); 
+    if(!vmcs_size)
+    {
+        return -EFAULT; 
+    }
+    
+    alloc_size = (vmcs_size <= PAGE_SIZE) ? PAGE_SIZE : vmcs_size; 
 
     /*allocate 4kb memory for vmcs region */ 
     
-    vmcs_region = kzalloc(VMCS_REGION_PAGE_SIZE, GFP_KERNEL); 
+    vmcs_region = kzalloc(alloc_size, GFP_KERNEL); 
 
     if(!vmcs_region)
     {
