@@ -1,0 +1,8 @@
+CompileFlags:
+  Add: [
+    -I/lib/modules/$(uname -r)/build/include,
+    -I/lib/modules/$(uname -r)/build/arch/$(uname -m)/include,
+    -I/lib/modules/$(uname -r)/build/include/uapi,
+    -I/lib/modules/$(uname -r)/build/arch/$(uname -m)/include/uapi,
+  ]
+

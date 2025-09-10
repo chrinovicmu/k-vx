@@ -6,6 +6,7 @@
 #include <linux/types.h>
 #include <linux/errno.h> 
 
+#define CACHE_LINE_SIZE     64 
 
 void* kzalloc_aligned(size_t size, size_t align, gfp_f flags) 
 {
