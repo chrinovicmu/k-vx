@@ -5,14 +5,6 @@
 #include <linux/byteorder/generic.h>  
 #include "util.h"
 
-#define VIRTIO_CONFIG_SPACE_RESET       0x00 
-#define VIRTIO_CONFIG_SPACE_ACKNOWLEDGE 0x01
-#define VIRTIO_CONFIG_SPACE_DRIVER      0x02 
-#define VIRTIO_CONFIG_SPACE_DRIVER_OK   0x04 
-#define VIRTIO_CONFIG_SPACE_FEATURES_OK 0x80
-
-#define VIRTIO_F_IN_ORDER               0X04000000 
-
 /*virtqueue alignment requiremnts */ 
 #define VIRTIO_VIRTQUEUE_ALIGN_DT       16 
 #define VIRTIO_VIRTQUEUE_ALIGN_AR       2 
@@ -87,6 +79,11 @@ struct virtqueue
     __le16 last_used_idx; /*last processed index*/ 
     uint8_t padding[CACHE_LINE_SIZE - sizeof(__le16) - 3 * sizeof(void *) - sizeof(__le16)]; 
 } __attribute__((packed, aligned(CACHE_LINE_SIZE))); 
+
+static struct virtqueue *virtq; 
+
+static int virtq_init(struct virtqueue, size_t size); 
+void virtqueue_free(struct virtqueue);
 
 #endif // !VIRTIO_H 
 
