@@ -9,8 +9,6 @@ static int virtq_init(struct virtqueue * virtq, size_t size)
     size_t size_desc;
     size_t size_avail; 
     size_t size_used; 
-
-    size_t used_offset; 
     size_t total_size; 
 
     void *dma_mem; 
@@ -21,8 +19,14 @@ static int virtq_init(struct virtqueue * virtq, size_t size)
         return NULL; 
 
     virt1->desc_num = VIRTIO_VIRTQUEUE_MAX_SIZE; 
-    size_desc = VIRTIO_VIRTQUEUE_SIZE_DT();
-    size_avail = VIRTIO_VIRTQUEUE_SIZE_AR(); 
-    size_used = VIRTIO_VIRTQUEUE_SIZE_UR(); 
+
+    size_desc = VIRTIO_VIRTQUEUE_SIZE_DT(VIRTIO_VIRTQUEUE_MAX_SIZE);
+    size_avail = VIRTIO_VIRTQUEUE_SIZE_AR(VIRTIO_VIRTQUEUE_MAX_SIZE); 
+    size_used = VIRTIO_VIRTQUEUE_SIZE_UR(VIRTIO_VIRTQUEUE_MAX_SIZE);
+
+    total_size = size_desc + size_avail + size_used; 
+
+     e
+
 }
 
