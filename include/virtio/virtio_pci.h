@@ -22,23 +22,51 @@
 
 struct virtio_pci_cap
 {
-    u8 cap_vndr; /*Generic PCI field : vendor specific capability */ 
-    u8 cap_next; /*Generic PCI field : link to next capability in capability list in pci config space */ 
-    u8 cap_len; /*Generic PCI field length of while pci_cap struct*/ 
-    u8 cfg_type; /* identify config structure */ 
-    u8 bar; /*where to find it */ 
-    u8 id; /*mulitple capabilities of the same type */ 
-    u8 padding[2]; /*pad full dword */ 
-    __le32 0ffset; /*offset within bar */ 
-    __le32 length; /*length of the structure */ 
+    u8      cap_vndr; /*Generic PCI field : vendor specific capability */ 
+    u8      cap_next; /*Generic PCI field : link to next capability in capability list in pci config space */ 
+    u8      cap_len; /*Generic PCI field length of while pci_cap struct*/ 
+    u8      cfg_type; /* identify config structure */ 
+    u8      bar; /*where to find it */ 
+    u8      id; /*mulitple capabilities of the same type */ 
+    u8      padding[2]; /*pad full dword */ 
+    __le32  0ffset; /*offset within bar */ 
+    __le32  length; /*length of the structure */ 
 }; 
 
 struct virtio_pci_cap64
 {
     struct virtio_pci_cap cap; 
-    u32 offset_hi;
-    u32 length_hi; 
+    u32     offset_hi;
+    u32     length_hi; 
 };
 
+struct virtio_pci_common_cfg 
+{
+    /*device*/
+    __le32  device_feature_select; 
+    __le32  device_feature; 
+    __le32  driver_feature_select; 
+    __le32  driver_feature; 
+    __le16  config_msix_vector; 
+    __le16  num_queues; 
+    u8      device_status; 
+    u8      config_generation; 
 
+    /*specific virtqueue */ 
+    __le16  queue_select; 
+    __le16  queue_size; 
+    __le16  queue_msix_vector;
+    __le16  queue_enable; 
+    __le16  queue_notify_off;
+    __le64  queue_desc; 
+    __le64  queue_driver;    /*addr driver area of avail ring */  
+    __le64  queue_device;    /*addr device area of used ring */ 
+    __le16  queue_notify_data; 
+    __le16  queue_reset; 
+} __attribute__((aligned(4)));
+
+struct virtio_pci_dev 
+{
+    struct pci_dev *pdev; ``
+}
 #endif // !VIRTIO_PCI_H 
