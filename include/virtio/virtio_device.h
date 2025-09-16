@@ -11,4 +11,7 @@
 #define VIRTIO_CONFIG_SPACE_DRIVER_OK   0x04 
 #define VIRTIO_CONFIG_SPACE_FEATURES_OK 0x80
 
+/*reset only specific device queue */ 
+#define VIRTIO_F_RING_RESET             (1ULL << 40)
+
 #endif 

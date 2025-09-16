@@ -1,8 +1,8 @@
-CompileFlags:
-  Add: [
-    -I/lib/modules/$(uname -r)/build/include,
-    -I/lib/modules/$(uname -r)/build/arch/$(uname -m)/include,
-    -I/lib/modules/$(uname -r)/build/include/uapi,
-    -I/lib/modules/$(uname -r)/build/arch/$(uname -m)/include/uapi,
-  ]
 
+CompileFlags:
+  Add:
+    - -I/lib/modules/$(shell uname -r)/build/include
+    - -Iinclude
+    - -D__KERNEL__
+    - -DKERNEL_MODULE
+    - -std=gnu11
