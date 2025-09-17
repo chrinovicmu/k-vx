@@ -240,7 +240,7 @@ static int virtio_pci_map_isr_cfg(struct virtio_pci_dev *vpci_dev, u8 pos)
         return ret;
     }
 
-    // Validate the capability type
+    // validate the capability type
     if (cap.cfg_type != VIRTIO_PCI_CAP_ISR_CFG) {
         dev_err(&pdev->dev, "Expected ISR cfg capability at 0x%x, got type %d\n",
                 pos, cap.cfg_type);
@@ -261,7 +261,7 @@ static int virtio_pci_map_isr_cfg(struct virtio_pci_dev *vpci_dev, u8 pos)
         return -EINVAL;
     }
 
-    /* Validate the length (must be sufficient for struct virtio_pci_isr_data) */ 
+    /* validate the length (must be sufficient for struct virtio_pci_isr_data) */ 
     if (cap.length < sizeof(struct virtio_pci_isr_data)) {
         dev_err(&pdev->dev, "ISR cfg capability length %d too small\n", cap.length);
         return -EINVAL;
@@ -282,6 +282,146 @@ static int virtio_pci_map_isr_cfg(struct virtio_pci_dev *vpci_dev, u8 pos)
         vpci_dev->isr_data = NULL;
         return -EIO;
     }
+    return 0;
+}
+
+static irqreturn_t virtio_pci_interupt(int irq, void *data)
+{
+    struct virtio_pci_dev *vpci_dev = data; 
+    struct virtio_pci_isr_data *isr = vpci_dev->isr_data; 
+    u32 isr_status; 
+
+    isr_status = ioread32(vpci_dev->isr_data); 
+
+    /*queue interrput */ 
+    if(isr->queue_intr)
+    {
+        dev_dbg(&vpci_dev->pdev->dev, "Queue interrput triggered\n"); 
+        /* TODO: 
+         * Queue interrput : Process virtqueues */ 
+    }
+
+    /*configuration interrput */ 
+    if(isr->config_intr)
+    {
+        u8 device_status = ioread8(&vpci_dev->common_cfg->device_status); 
+        dev_dbg(&vpci_dev->pdev->dev, "configuration interrput triggered, status : 0x%x\n", 
+                device_status); 
+        /* TODO: 
+         * handle configuration change 
+         */ 
+    }
+
+    /*handle device-specific interrput (if any)*/ 
+    if(isr_status & ~0x3)
+    {
+        dev_dbg(&vpci_dev->pdev->dev, "Device-specific interrput status: 0x%x\n", 
+                status & ~0x3);  
+        /* TODO: 
+         * handle device-specific interrput */ 
+    }
+
+    iowrite32(isr_status, vpci_dev->isr_data); 
+
+    return IRQ_HANDLED 
+}
+
+static int virtio_pci_map_device_cfg(struct virtio_pci_dev *vpci_dev, u8 pos)
+{
+    struct pci_dev *pdev = vpci_dev->pdev;    
+    struct virtio_pci_cap cap = {0};    
+    void __iomem *base;                     
+    int ret;
+
+    /* Read the entire virtio_pci_cap structure (16 bytes) */ 
+    ret = pci_read_config_dword(pdev, pos + VIRTIO_PCI_CAP_VNDR_OFFSET, (u32 *)&cap);
+    if (ret)
+    {
+        dev_err(&pdev->dev, "Failed to read device cfg at 0x%x (vendor fields)\n",
+                pos + VIRTIO_PCI_CAP_VNDR_OFFSET);
+        return ret;
+    }
+
+    ret = pci_read_config_dword(pdev, pos + VIRTIO_PCI_CAP_BAR_OFFSET, (u32 *)&cap.bar);
+    if (ret) 
+    {
+        dev_err(&pdev->dev, "Failed to read device cfg at 0x%x (BAR fields)\n",
+                pos + VIRTIO_PCI_CAP_BAR_OFFSET);
+        return ret;
+    }
+
+    ret = pci_read_config_dword(pdev, pos + VIRTIO_PCI_CAP_OFFSET_OFFSET, &cap.offset);
+    if (ret)
+    {
+        dev_err(&pdev->dev, "Failed to read device cfg at 0x%x (offset field)\n",
+                pos + VIRTIO_PCI_CAP_OFFSET_OFFSET);
+        return ret;
+    }
+
+    ret = pci_read_config_dword(pdev, pos + VIRTIO_PCI_CAP_LENGTH_OFFSET, &cap.length);
+    if (ret) 
+    {
+        dev_err(&pdev->dev, "Failed to read device cfg at 0x%x (length field)\n",
+                pos + VIRTIO_PCI_CAP_LENGTH_OFFSET);
+        return ret;
+    }
+
+    /* validate the capability type */ 
+    if (cap.cfg_type != VIRTIO_PCI_CAP_DEVICE_CFG) 
+    {
+        dev_err(&pdev->dev, "Expected device cfg capability at 0x%x, got type %d\n",
+                pos, cap.cfg_type);
+        return -EINVAL;
+    }
+
+    /* validate the capability length */ 
+    if (cap.cap_len < sizeof(struct virtio_pci_cap))
+    {
+        dev_err(&pdev->dev, "Device cfg capability at 0x%x has invalid length %d\n",
+                pos, cap.cap_len);
+        return -EINVAL;
+    }
+
+    /* convert little-endian fields to host endianness */ 
+    cap.offset = le32_to_cpu(cap.offset);
+    cap.length = le32_to_cpu(cap.length);
+
+    /* validate the BAR index */ 
+    if (cap.bar >= PCI_STD_NUM_BARS) 
+    {
+        dev_err(&pdev->dev, "Invalid BAR index %d for device cfg capability\n", cap.bar);
+        return -EINVAL;
+    }
+
+    /* validate the length (must be non-zero; exact size depends on device type) */ 
+    if (cap.length == 0)
+    {
+        dev_err(&pdev->dev, "Device cfg capability length is zero\n");
+        return -EINVAL;
+    }
+
+    /* map the BAR region specified in the capability */ 
+    base = pci_ioremap_bar(pdev, cap.bar);
+    if (!base)
+    {
+        dev_err(&pdev->dev, "Failed to map BAR %d for device cfg\n", cap.bar);
+        return -ENOMEM;
+    }
+
+    /* store the mapped device-specific configuration region address */ 
+    vpci_dev->device_cfg = base + cap.offset;
+
+    /* verify that the mapped region is accessible (optional)
+     * Note: Device-specific validation depends on the VirtIO device type */ 
+    if (ioread32(vpci_dev->device_cfg) == 0xFFFFFFFF) 
+    {
+        dev_err(&pdev->dev, "Device cfg region at BAR %d offset 0x%x is invalid\n",
+                cap.bar, cap.offset);
+        iounmap(base);
+        vpci_dev->device_cfg = NULL;
+        return -EIO;
+    }
+
     return 0;
 }
 

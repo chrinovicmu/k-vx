@@ -21,6 +21,15 @@
 /*Vendor-specific data */ 
 #define VIRTIO_PCI_CAP_VENDOR_CFG       9 
 
+/* ISR status bit definations */ 
+
+/*one or ore virtqueues have pending events, such as new buffers beign available for processing 
+ * e.g device added buffers to used ring or driver added buffers to available ring */ 
+#define ISR_STATUS_QUEUE_INTERRUPT      0x1
+
+/* device configuration has changed, such as modifications to device_status or config_generation*/  
+#define ISR_STATUS_DEVICE_CFG_INTERRUPT 0x2  
+
 struct virtio_pci_cap
 {
     u8      cap_vndr; /*Generic PCI field : vendor specific capability */ 
@@ -32,7 +41,7 @@ struct virtio_pci_cap
     u8      padding[2]; /*pad full dword */ 
     __le32  offset; /*offset within bar */ 
     __le32  length; /*length of the structure */ 
-}; 
+}__attribute__((packed)); 
 
 struct virtio_pci_cap64
 {
@@ -64,7 +73,7 @@ struct virtio_pci_common_cfg
     __le64  queue_device;    /*addr device area of used ring */ 
     __le16  queue_notify_data; 
     __le16  queue_reset; 
-} __attribute__((aligned(4)));
+} __attribute__((packed, aligned(4)));
 
 
 struct virtio_pci_notify_cap 
@@ -77,8 +86,17 @@ struct virtio_pci_notify_cap
 
 struct virtio_pci_isr_data 
 {
-    u32 isr_status; 
-}
+    union {
+        u32 isr_status; 
+        struct {
+            u8 queue_intr : 1;
+            u8 config_intr : 1; 
+            u8 reserved : 6;
+            u device_specific[3]; 
+        } __attribute__((packed)); 
+    }; 
+}; 
+
 struct virtio_pci_cndr_data 
 {
     u8 cap_vndr; 
@@ -100,10 +118,11 @@ struct virtio_pci_dev
     u64 device_features; 
     u64 guest_features; 
     struct virtio_pci_notify_cap *notify_cap; 
-    struct virtio_pci_cap; 
+    struct virtio_pci_cap cap; 
+    void __iomem *isr_data;
+    void __iomem *device_cfg; 
     struct virtqueue *virtq;  
 }
-
 
 static int virtio_pci_init(struct virtio_pci_dev *vpci_dev)
 {
