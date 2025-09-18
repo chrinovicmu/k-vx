@@ -4,6 +4,7 @@
 #include <linux/types.h> 
 #include <linux/byteorder/generic.h>  
 #include <linux/virtio_pci.h> 
+#include <linux/virtio.h> 
 #include "util.h"
 
 /*Common configuration */ 
@@ -113,15 +114,17 @@ struct virtio_pci_cfg_cap
 }
 struct virtio_pci_dev 
 {
+    struct virtio_device virtio_dev; 
     struct pci_dev *pdev;
-    struct virtio_pci_common_cfg *common_cfg; 
-    u64 device_features; 
-    u64 guest_features; 
+    u64 device_features;    /*device-offered features */  
+    u64 guest_features;     /*driver-accepted features */ 
+    struct virtio_pci_common_cfg __iomem *common_cfg; 
     struct virtio_pci_notify_cap *notify_cap; 
     struct virtio_pci_cap cap; 
     void __iomem *isr_data;
     void __iomem *device_cfg; 
     struct virtqueue *virtq;  
+    int num_queues; 
 }
 
 static int virtio_pci_init(struct virtio_pci_dev *vpci_dev)

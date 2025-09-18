@@ -532,23 +532,8 @@ static int virtio_pci_probe(struct pci_dev *pdev, const struct pci_device_id)
         return -ENOMEN; 
     }
 
-    vpci_dev->pdev = pdev; 
-    
-    /*enable pci device */ 
-    ret = pci_enable(pdev); 
-    if(ret)
-    {
-        dev_err(&pdev->dev, "Failed to enable PCI device\n"); 
-        goto err_disable_dev; 
-    }
-
-    /*request pci regions */ 
-    ret = pci_request_regions(pdev, "virtio_pci");
-    if(ret)
-    {
-        dev_err(&pdev->dev, "failed to request PCI regions\n"); 
-        goto err_disable_dev; 
-    }
+    /*Initialize the embedded virtio_device */ 
+    vpci_dev-?virt
 
 }
 
