@@ -81,9 +81,9 @@ struct virtio_pci_notify_cap
 {
     struct virtio_pci_cap cap; 
 
-    /*multiplier used for each queue */ 
+    /*multiplier used for each queue notifu register */ 
     __le32 notify_off_multiplier; 
-}; 
+}__attribute__((packed)); 
 
 struct virtio_pci_isr_data 
 {
@@ -123,7 +123,7 @@ struct virtio_pci_dev
     struct virtio_pci_cap cap; 
     void __iomem *isr_data;
     void __iomem *device_cfg; 
-    struct virtqueue *virtq;  
+    struct virtqueue *virtqs;  
     int num_queues; 
 }
 

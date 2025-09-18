@@ -1,6 +1,9 @@
 #ifndef VIRTIO_NET 
 #define VIRTIO_NET
 
+#include <linux/virtio.h> 
+#include <linux/netdevice.h>
+#include "/virtio/virtio_pci.h"
 
 /* 0-23 are original Virtio-net feature bits */
 
@@ -103,5 +106,38 @@
 /* Device can report its physical link speed and duplex mode. */
 #define VIRTIO_NET_F_SPEED_DUPLEX        (1ULL << 63)  /* 0x8000000000000000 */
 
+
+/* status bits fopr Virtio-net devices */ 
+
+/*indicates that network link is up, (i.e device can send and receive packets)
+ * driver can check this status bit to know whether the network interface is active*/
+#define VIRTIO_NET_S_LINK_UP            1 
+
+/* indicates that guest has sent a gratuitous announcement
+* if(VIRTIO_NET_F_GUEST_ANNOUNCE is negotiated) */ 
+#define VIRTIO_NET_S_ANNOUNCE           2 
+
+struct virtio_net_config
+{
+    u8 mac[6]; 
+    __le16 status; 
+    __le16 max_virtqueue_pairs; 
+    __le16 mtu; 
+    __le32 speed; 
+    u8 duplex; 
+    u8 rss_max_key_size; 
+    __le16 rss_mac_indirection_table_length; 
+    __le32 supported_hash_types; 
+} __attribute__ ((packed, aligned(4)));  
+
 #endif // !VIRTIO_NET 
+
+struct virtio_net_dev 
+{
+    struct virtio_pci_dev *vpci_dev; 
+    struct net_device *netdev; 
+}; 
+
+int virtio_net_init(struct virtio_pci_dev *vpci_dev); 
+void virtio_net_exit(struct virti)
 

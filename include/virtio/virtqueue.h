@@ -35,7 +35,10 @@
 #define VIRTIO_F_INDIRECT_DESC          28 
 
 /*Arbitrary descriptor layout */ 
- #define VIRTIO_F_ANY_LAYOUT            27 
+ #define VIRTIO_F_ANY_LAYOUT            27
+
+#define VIRTIO_VIRTQUEUE_ENABLE         1 
+#define VIRTIO_VIRTQUEUE_DISABLE        0 
 
 struct virtq_desc 
 {
