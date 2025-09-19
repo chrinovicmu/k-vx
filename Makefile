@@ -1,8 +1,8 @@
 
 ifeq ($(KERNELRELEASE),)
-    # Called from command line
-    KERNELDIR ?= /lib/modules/$(shell uname -r)/build
-    PWD := $(shell pwd)
+# Called from command line
+KERNELDIR ?= /lib/modules/$(shell uname -r)/build
+PWD := $(shell pwd)
 
 modules:
 	$(MAKE) -C $(KERNELDIR) M=$(PWD) modules
@@ -17,11 +17,12 @@ clean:
 .PHONY: modules modules_install clean
 
 else
-    # Called from kernel build system
+# Called from kernel build system
 
-    # Tell kernel to build module lkm_hyp.o from src/lkm_hyp.c
-    obj-m := lkm_hyp.o
-    lkm_hyp-objs := src/lkm_hyp.o
+# Build module vmx.o from src/vmx.c
+obj-m := vmx.o
+vmx-objs := src/vmx.o
 
-    ccflags-y += -mcmodel=kernel -mno-red-zone -g -DDEBUG
+ccflags-y += -mcmodel=kernel -mno-red-zone -g -DDEBUG
+
 endif

@@ -21,7 +21,7 @@
 #include <asm/page.h>
 #include <asm/io.h>
 #include <asm/errno.h> 
-#include "lkm_hyp.h"
+#include "vmx.h"
 #include "asm/page_types.h"
 #include "linux/gfp_types.h"
 #include "vmcs_state.h"

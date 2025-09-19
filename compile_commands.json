@@ -1,7 +1,0 @@
-[
-  {
-    "directory": "/home/chrinovic/Tech/Projects/k-vx",
-    "command": "clang -I/lib/modules/$(uname -r)/build/include -Iinclude -D__KERNEL__ -DKERNEL_MODULE -c src/virtio/virtio_pci.c",
-    "file": "src/virtio/virtio_pci.c"
-  }
-]
